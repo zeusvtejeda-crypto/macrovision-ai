@@ -2,7 +2,7 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 
-RUN apk add --no-cache libc6-compat python3 make g++
+RUN apk add --no-cache libc6-compat python3 make g++ openssl
 
 COPY apps/backend/package.json ./
 COPY apps/backend/prisma ./prisma/
@@ -31,7 +31,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-RUN apk add --no-cache libc6-compat dumb-init
+RUN apk add --no-cache libc6-compat dumb-init openssl
 
 # Usuario no-root
 RUN addgroup --system --gid 1001 nodejs && \
