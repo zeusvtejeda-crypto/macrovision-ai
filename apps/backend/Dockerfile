@@ -4,8 +4,8 @@ WORKDIR /app
 
 RUN apk add --no-cache libc6-compat python3 make g++
 
-COPY package.json package-lock.json ./
-COPY prisma ./prisma/
+COPY apps/backend/package.json apps/backend/package-lock.json ./
+COPY apps/backend/prisma ./prisma/
 
 # Genera cliente con el schema de producción (PostgreSQL)
 RUN npm ci --only=production && \
@@ -19,7 +19,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY apps/backend/ .
 COPY --from=deps /app/prisma ./prisma
 
 RUN npm run build
@@ -40,8 +40,8 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
 COPY --from=builder --chown=nestjs:nodejs /app/prisma ./prisma
 COPY --from=deps    --chown=nestjs:nodejs /app/node_modules_prod ./node_modules
-COPY --chown=nestjs:nodejs package.json ./
-COPY --chown=nestjs:nodejs docker-entrypoint.sh ./
+COPY --chown=nestjs:nodejs apps/backend/package.json ./
+COPY --chown=nestjs:nodejs apps/backend/docker-entrypoint.sh ./
 
 RUN mkdir -p logs && chown nestjs:nodejs logs && \
     chmod +x docker-entrypoint.sh
