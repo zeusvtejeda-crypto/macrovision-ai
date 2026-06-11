@@ -1,0 +1,31 @@
+{
+  "name": "macrovision-ai",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace=apps/backend",
+    "dev:mobile": "npm run start --workspace=apps/mobile",
+    "dev:admin": "npm run dev --workspace=apps/admin",
+    "build:backend": "npm run build --workspace=apps/backend",
+    "build:mobile": "npm run build --workspace=apps/mobile",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "db:migrate": "npm run migrate --workspace=apps/backend",
+    "db:seed": "npm run seed --workspace=apps/backend",
+    "db:studio": "npm run studio --workspace=apps/backend",
+    "docker:dev": "docker-compose up -d",
+    "docker:prod": "docker-compose -f docker-compose.prod.yml up -d"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "eslint": "^9.9.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}

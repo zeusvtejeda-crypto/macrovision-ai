@@ -1,0 +1,400 @@
+// MacroVision AI — Prisma Schema (PRODUCCIÓN)
+// Base de datos: PostgreSQL vía Supabase
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// ─────────────────────────────────────────
+// USUARIOS Y AUTENTICACIÓN
+// ─────────────────────────────────────────
+
+model User {
+  id                  String    @id @default(cuid())
+  email               String    @unique
+  passwordHash        String?
+  emailVerified       Boolean   @default(false)
+  verificationToken   String?
+  resetToken          String?
+  resetTokenExpiry    DateTime?
+  name                String?
+  avatarUrl           String?
+  googleId            String?   @unique
+  appleId             String?   @unique
+  isActive            Boolean   @default(true)
+  role                String    @default("USER")
+  subscriptionStatus  String    @default("FREE")
+  subscriptionExpiry  DateTime?
+  stripeCustomerId    String?
+  onboardingCompleted Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  lastLoginAt         DateTime?
+  lastActiveAt        DateTime?
+
+  profile       UserProfile?
+  diaryEntries  DiaryEntry[]
+  analyses      FoodAnalysis[]
+  subscription  Subscription?
+  refreshTokens RefreshToken[]
+  weightLogs    WeightLog[]
+  aiFeedback    AiFeedback[]
+  notifications UserNotification[]
+
+  @@index([email])
+  @@index([stripeCustomerId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  token      String    @unique
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceInfo String?
+  ipAddress  String?
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+model UserProfile {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  age            Int?
+  sex            String?
+  weight         Float?
+  height         Float?
+  activityLevel  String?
+  goal           String?
+  bmr            Float?
+  tdee           Float?
+  targetCalories Float?
+  targetProtein  Float?
+  targetCarbs    Float?
+  targetFat      Float?
+  targetFiber    Float?
+  proteinPercent Float?    @default(30)
+  carbsPercent   Float?    @default(40)
+  fatPercent     Float?    @default(30)
+  unitSystem     String    @default("METRIC")
+  language       String    @default("es")
+  timezone       String    @default("America/Mexico_City")
+
+  dietaryRestrictions String @default("[]")
+  allergies           String @default("[]")
+  cuisinePreferences  String @default("[]")
+
+  currentStreak   Int       @default(0)
+  longestStreak   Int       @default(0)
+  totalLogsCount  Int       @default(0)
+  lastLogDate     DateTime?
+  reminderEnabled Boolean   @default(true)
+  reminderTime    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("user_profiles")
+}
+
+model WeightLog {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weight     Float
+  bodyFat    Float?
+  muscleMass Float?
+  date       DateTime @default(now())
+  note       String?
+
+  @@index([userId, date])
+  @@map("weight_logs")
+}
+
+// ─────────────────────────────────────────
+// ALIMENTOS
+// ─────────────────────────────────────────
+
+model FoodItem {
+  id              String   @id @default(cuid())
+  name            String
+  nameEs          String?
+  namePlural      String?
+  brand           String?
+  category        String?
+  calories        Float
+  protein         Float
+  carbohydrates   Float
+  fat             Float
+  fiber           Float?   @default(0)
+  sugar           Float?   @default(0)
+  sodium          Float?   @default(0)
+  potassium       Float?
+  calcium         Float?
+  iron            Float?
+  vitaminC        Float?
+  saturatedFat    Float?
+  transFat        Float?
+  cholesterol     Float?
+  servingSize     Float?   @default(100)
+  servingUnit     String?  @default("g")
+  servingSizeAlt  Float?
+  servingUnitAlt  String?
+  source          String   @default("CUSTOM")
+  externalId      String?
+  barcode         String?
+  usdaFoodId      String?
+  aiEnriched      Boolean  @default(false)
+  verifiedByAdmin Boolean  @default(false)
+  confidenceScore Float?
+  usageCount      Int      @default(0)
+  imageUrl        String?
+  thumbnailUrl    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  analysisItems FoodAnalysisItem[]
+  diaryFoods    DiaryEntryFood[]
+
+  @@index([name])
+  @@index([nameEs])
+  @@index([barcode])
+  @@map("food_items")
+}
+
+// ─────────────────────────────────────────
+// ANÁLISIS DE IA
+// ─────────────────────────────────────────
+
+model FoodAnalysis {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  imageUrl          String
+  imagePath         String?
+  imageThumbnailUrl String?
+  mealType          String?
+  mealDate          DateTime?
+  rawAiResponse     String?
+  aiModel           String?
+  aiProvider        String?
+  processingTimeMs  Int?
+  status            String    @default("PENDING")
+  errorMessage      String?
+  retryCount        Int       @default(0)
+  mealName          String?
+  mealDescription   String?
+  cookingMethod     String?
+  cuisineType       String?
+  confidenceScore   Float?
+  confidenceLabel   String?
+  totalCalories     Float?
+  totalProtein      Float?
+  totalCarbs        Float?
+  totalFat          Float?
+  totalFiber        Float?
+  totalSodium       Float?
+  userCorrected     Boolean   @default(false)
+  correctedAt       DateTime?
+  dbVerified        Boolean   @default(false)
+  dbVerifiedAt      DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  items      FoodAnalysisItem[]
+  diaryEntry DiaryEntry?
+  feedback   AiFeedback?
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@map("food_analyses")
+}
+
+model FoodAnalysisItem {
+  id               String       @id @default(cuid())
+  analysisId       String
+  analysis         FoodAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  foodItemId       String?
+  foodItem         FoodItem?    @relation(fields: [foodItemId], references: [id])
+  detectedName     String
+  detectedNameEs   String?
+  portionSize      Float
+  portionUnit      String       @default("g")
+  portionDisplay   String?
+  cookingMethod    String?
+  isMainIngredient Boolean      @default(false)
+  calories         Float
+  protein          Float
+  carbohydrates    Float
+  fat              Float
+  fiber            Float?
+  sodium           Float?
+  confidenceScore  Float?
+  alternativeNames String       @default("[]")
+  userPortionSize  Float?
+  userCorrected    Boolean      @default(false)
+  sortOrder        Int          @default(0)
+
+  @@index([analysisId])
+  @@map("food_analysis_items")
+}
+
+// ─────────────────────────────────────────
+// DIARIO
+// ─────────────────────────────────────────
+
+model DiaryEntry {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date          DateTime
+  mealType      String
+  mealName      String?
+  analysisId    String?       @unique
+  analysis      FoodAnalysis? @relation(fields: [analysisId], references: [id])
+  totalCalories Float         @default(0)
+  totalProtein  Float         @default(0)
+  totalCarbs    Float         @default(0)
+  totalFat      Float         @default(0)
+  totalFiber    Float         @default(0)
+  notes         String?
+  photo         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  foods DiaryEntryFood[]
+
+  @@unique([userId, date, mealType])
+  @@index([userId, date])
+  @@map("diary_entries")
+}
+
+model DiaryEntryFood {
+  id             String     @id @default(cuid())
+  diaryEntryId   String
+  diaryEntry     DiaryEntry @relation(fields: [diaryEntryId], references: [id], onDelete: Cascade)
+  foodItemId     String
+  foodItem       FoodItem   @relation(fields: [foodItemId], references: [id])
+  portionSize    Float
+  portionUnit    String     @default("g")
+  portionDisplay String?
+  calories       Float
+  protein        Float
+  carbohydrates  Float
+  fat            Float
+  fiber          Float?
+  sodium         Float?
+  sortOrder      Int        @default(0)
+
+  @@index([diaryEntryId])
+  @@map("diary_entry_foods")
+}
+
+// ─────────────────────────────────────────
+// SUSCRIPCIONES
+// ─────────────────────────────────────────
+
+model Subscription {
+  id                     String    @id @default(cuid())
+  userId                 String    @unique
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                   String
+  status                 String
+  provider               String
+  externalSubscriptionId String?
+  externalProductId      String?
+  externalPriceId        String?
+  currentPeriodStart     DateTime
+  currentPeriodEnd       DateTime
+  trialStart             DateTime?
+  trialEnd               DateTime?
+  canceledAt             DateTime?
+  cancelAtPeriodEnd      Boolean   @default(false)
+  cancelReason           String?
+  amount                 Float?
+  currency               String?   @default("USD")
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  payments Payment[]
+
+  @@map("subscriptions")
+}
+
+model Payment {
+  id             String       @id @default(cuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
+  externalId     String?
+  amount         Float
+  currency       String       @default("USD")
+  status         String
+  paidAt         DateTime?
+  failureReason  String?
+  createdAt      DateTime     @default(now())
+
+  @@index([subscriptionId])
+  @@map("payments")
+}
+
+// ─────────────────────────────────────────
+// FEEDBACK Y NOTIFICACIONES
+// ─────────────────────────────────────────
+
+model AiFeedback {
+  id             String       @id @default(cuid())
+  analysisId     String       @unique
+  analysis       FoodAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating         Int
+  comment        String?
+  actualCalories Float?
+  issues         String       @default("[]")
+  createdAt      DateTime     @default(now())
+
+  @@map("ai_feedback")
+}
+
+model AdminLog {
+  id         String   @id @default(cuid())
+  adminId    String
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   String?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([adminId])
+  @@index([createdAt])
+  @@map("admin_logs")
+}
+
+model UserNotification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  data      String?
+  readAt    DateTime?
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@map("user_notifications")
+}
