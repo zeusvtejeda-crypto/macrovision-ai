@@ -8,11 +8,11 @@ COPY package.json package-lock.json ./
 COPY prisma ./prisma/
 
 # Genera cliente con el schema de producción (PostgreSQL)
-RUN npm ci --only=production && \
+RUN npm install --omit=dev && \
     npx prisma generate --schema=prisma/prod/schema.prisma && \
     cp -r node_modules /app/node_modules_prod
 
-RUN npm ci
+RUN npm install
 
 # ─── Stage 2: Builder ─────────────────────────
 FROM node:20-alpine AS builder
