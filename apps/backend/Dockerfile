@@ -4,15 +4,16 @@ WORKDIR /app
 
 RUN apk add --no-cache libc6-compat python3 make g++
 
-COPY apps/backend/package.json apps/backend/package-lock.json ./
+COPY apps/backend/package.json ./
 COPY apps/backend/prisma ./prisma/
 
-# Genera cliente con el schema de producción (PostgreSQL)
-RUN npm ci --only=production && \
+# Instala deps de producción y genera cliente Prisma (PostgreSQL)
+RUN npm install --omit=dev && \
     npx prisma generate --schema=prisma/prod/schema.prisma && \
     cp -r node_modules /app/node_modules_prod
 
-RUN npm ci
+# Instala todas las deps (incluyendo devDependencies para el build)
+RUN npm install
 
 # ─── Stage 2: Builder ─────────────────────────
 FROM node:20-alpine AS builder
