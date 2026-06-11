@@ -290,6 +290,7 @@
     <div class="error-msg" id="login-error"></div>
     <div class="auth-divider">o</div>
     <button class="btn-demo" onclick="enterDemo()">⚡ Probar en modo demo</button>
+    <button class="btn-demo" onclick="showGeminiModal()" style="margin-top:8px;background:linear-gradient(135deg,#7c3aed22,#a78bfa22);border-color:#7c3aed;color:#a78bfa">📱 Usar en iPhone (sin cuenta)</button>
     <button class="btn-ghost" onclick="showScreen('register')">¿No tienes cuenta? <span>Regístrate gratis</span></button>
   </div>
 </div>
@@ -574,6 +575,11 @@
     </div>
     <div class="section-title">Configuración</div>
     <div class="settings-section">
+      <div class="settings-item" onclick="showGeminiModal()">
+        <div class="settings-icon">🤖</div>
+        <span class="settings-label">Clave Gemini IA</span>
+        <span class="settings-arrow">›</span>
+      </div>
       <div class="settings-item" onclick="showApiModal()">
         <div class="settings-icon">🔗</div>
         <span class="settings-label">URL del servidor API</span>
@@ -636,6 +642,27 @@
   </div>
 </div>
 
+<!-- ─── GEMINI MODAL ───────────────────────────────────────── -->
+<div class="modal-overlay" id="gemini-modal" onclick="hideGeminiModal(event)">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <h3>📱 Usar en iPhone</h3>
+    <p>Ingresa tu clave de Gemini IA (gratis en <strong style="color:var(--purple)">ai.google.dev</strong>). Se guarda solo en tu teléfono.</p>
+    <div class="field">
+      <label>Tu nombre</label>
+      <input type="text" id="gemini-name-input" placeholder="Zeus" autocomplete="name">
+    </div>
+    <div class="field">
+      <label>Clave API de Gemini</label>
+      <input type="password" id="gemini-key-input" placeholder="AIza...">
+    </div>
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="hideGeminiModal()">Cancelar</button>
+      <button class="btn-save" onclick="saveGeminiKey()" style="background:linear-gradient(135deg,#7c3aed,#a78bfa)">Guardar y entrar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ─── GOALS MODAL ────────────────────────────────────────── -->
 <div class="modal-overlay" id="goals-modal" onclick="hideGoalsModal(event)">
   <div class="modal-sheet goals-modal" onclick="event.stopPropagation()">
@@ -689,9 +716,8 @@
 //  CONFIG & STATE
 // ════════════════════════════════════════════════════════════
 const S = {
+  geminiKey: localStorage.getItem('mv_gemini') || '',
   apiUrl: localStorage.getItem('mv_api') || (
-    // En local → apunta al backend local
-    // En producción (Cloudflare Pages u otro host) → vacío hasta que el usuario configure
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
       ? 'http://localhost:3000'
       : ''
@@ -751,16 +777,15 @@ function runSplash() {
     if (step >= 3) {
       clearInterval(iv);
       setTimeout(() => {
-        if (S.demo || S.token) {
+        if (S.demo || S.token || S.geminiKey) {
+          if (S.geminiKey && !S.user) {
+            S.user = { name: localStorage.getItem('mv_local_name') || 'Tú', email: 'local' };
+          }
           showScreen('app');
           switchTab('dashboard');
         } else {
           showScreen('login');
           checkServerHealth();
-          // En producción sin URL configurada → abre el modal para que el usuario ponga la URL
-          if (!S.apiUrl) {
-            setTimeout(() => showApiModal(), 600);
-          }
         }
       }, 400);
     }
@@ -1027,7 +1052,10 @@ async function analyzeImage() {
 
   try {
     let analysis;
-    if (S.demo || !S.token) {
+    if (S.geminiKey) {
+      // Modo iPhone: Gemini Vision directo, sin backend
+      analysis = await analyzeWithGemini(S.capturedFile);
+    } else if (S.demo || !S.token) {
       // Demo mode: mock analysis
       await sleep(2800);
       analysis = mockAnalysis();
@@ -1105,6 +1133,98 @@ function addToDiary() {
 
   showToast('Agregado al diario ✓','success');
   setTimeout(() => { switchTab('diary'); }, 600);
+}
+
+// ════════════════════════════════════════════════════════════
+//  GEMINI MODAL
+// ════════════════════════════════════════════════════════════
+function showGeminiModal() {
+  document.getElementById('gemini-name-input').value = localStorage.getItem('mv_local_name') || '';
+  document.getElementById('gemini-key-input').value = S.geminiKey || '';
+  document.getElementById('gemini-modal').classList.add('show');
+}
+function hideGeminiModal(e) {
+  if (e && e.target !== document.getElementById('gemini-modal')) return;
+  document.getElementById('gemini-modal').classList.remove('show');
+}
+function saveGeminiKey() {
+  const name = document.getElementById('gemini-name-input').value.trim() || 'Tú';
+  const key = document.getElementById('gemini-key-input').value.trim();
+  if (!key) { showToast('Ingresa tu clave de Gemini', 'error'); return; }
+  S.geminiKey = key;
+  localStorage.setItem('mv_gemini', key);
+  localStorage.setItem('mv_local_name', name);
+  S.user = { name, email: 'local' };
+  document.getElementById('gemini-modal').classList.remove('show');
+  showScreen('app');
+  switchTab('dashboard');
+  showToast('¡Listo! Ahora puedes escanear tu comida 🎉', 'success');
+}
+
+// ════════════════════════════════════════════════════════════
+//  GEMINI VISION API (llamada directa desde el browser)
+// ════════════════════════════════════════════════════════════
+async function analyzeWithGemini(file) {
+  const base64 = await fileToBase64(file);
+  const mimeType = file.type || 'image/jpeg';
+
+  const prompt = `Eres un experto nutricionista. Analiza esta imagen de comida con precisión.
+
+Identifica TODOS los alimentos visibles y responde SOLO con este JSON exacto (sin texto extra):
+{
+  "items": [
+    {
+      "detectedNameEs": "nombre en español",
+      "detectedName": "name in english",
+      "portion": "porción estimada en gramos o unidades",
+      "calories": número,
+      "protein": número_gramos,
+      "carbs": número_gramos,
+      "fat": número_gramos
+    }
+  ],
+  "totalCalories": número_total,
+  "totalProtein": número_total,
+  "totalCarbs": número_total,
+  "totalFat": número_total,
+  "confidenceScore": número_entre_0_y_1
+}`;
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${S.geminiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [
+          { inlineData: { mimeType, data: base64 } },
+          { text: prompt }
+        ]}],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 1024 }
+      })
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.json();
+    if (err?.error?.message?.includes('API_KEY')) throw new Error('Clave de Gemini inválida. Ve a Configuración y corrígela.');
+    throw new Error('Error de Gemini: ' + (err?.error?.message || res.status));
+  }
+
+  const data = await res.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('Gemini no pudo identificar los alimentos. Intenta con otra foto.');
+  return JSON.parse(match[0]);
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 // Demo mock data
