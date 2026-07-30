@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LYM Villeda · Agencia de Marketing Digital</title>
+<script>document.documentElement.className += ' js';</script>
 <style>
   /* sin dependencias externas — funciona 100% offline */
 
@@ -125,8 +126,9 @@
     50%     { transform: translate(-26px,22px); }
   }
 
-  /* entrada por etapas del hero */
-  .hero-mark, .hero-eyebrow, .hero-title, .hero-sub, .hero-badge {
+  /* entrada por etapas del hero — solo si el JS marcó html.js */
+  html.js .hero-mark, html.js .hero-eyebrow, html.js .hero-title,
+  html.js .hero-sub, html.js .hero-badge {
     opacity:0; transform: translateY(26px);
     animation: heroRise .9s cubic-bezier(.2,.75,.25,1) forwards;
   }
@@ -458,15 +460,18 @@
     letter-spacing:.05em; line-height:1.7;
   }
 
-  /* ── SCROLL REVEAL ── */
-  .reveal {
+  /* ── SCROLL REVEAL ──
+     El estado "oculto" SOLO se aplica cuando el JavaScript está activo
+     (html.js). Si el JS no corre, todo se ve normal desde el inicio. */
+  .reveal.in { opacity:1; transform: translateY(0); }
+  html.js .reveal {
     opacity:0; transform: translateY(34px);
     transition: opacity .7s cubic-bezier(.2,.75,.25,1), transform .7s cubic-bezier(.2,.75,.25,1);
     will-change: opacity, transform;
   }
-  .reveal.in { opacity:1; transform: translateY(0); }
+  html.js .reveal.in { opacity:1; transform: translateY(0); }
   /* delays escalonados para grupos de tarjetas */
-  .stagger > * {
+  html.js .stagger > * {
     opacity:0; transform: translateY(28px);
     transition: opacity .6s cubic-bezier(.2,.75,.25,1), transform .6s cubic-bezier(.2,.75,.25,1);
   }
