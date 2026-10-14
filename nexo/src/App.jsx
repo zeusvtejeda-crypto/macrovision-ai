@@ -1,6 +1,6 @@
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { supabase, configured } from './supabase.js';
-import { DataProvider, useDataReady, useStore, useSyncStatus } from './data/provider.jsx';
+import { DataProvider, useDataReady, useStore, useSyncStatus, useRows } from './data/provider.jsx';
 import { useRoute, Link, navigate } from './router.jsx';
 import { modules, lazyRoute } from './modules/index.js';
 import { ROUTE_MODULE, MORE_ENTRIES } from './modules/manifest.js';
@@ -50,10 +50,23 @@ const LEGACY = {
   settings: () => <><legacy.Memory /><legacy.PushCard /><legacy.SiriCard /></>,
 };
 
+// Número en el icono de la app (iOS 16.4+ instalada, macOS Sonoma+): tareas vencidas o de hoy.
+function useAppBadge() {
+  const tasks = useRows('tasks', (rows) => rows.filter((t) => !t.done && (t.due_at || t.planned_on)));
+  useEffect(() => {
+    if (!('setAppBadge' in navigator)) return;
+    const today = new Date(); const y = today.getFullYear(), m = String(today.getMonth() + 1).padStart(2, '0'), d = String(today.getDate()).padStart(2, '0');
+    const todayStr = `${y}-${m}-${d}`;
+    const n = tasks.filter((t) => (t.due_at && t.due_at.slice(0, 10) <= todayStr) || t.planned_on === todayStr).length;
+    (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
+  }, [tasks]);
+}
+
 function Shell({ session }) {
   const route = useRoute();
   const dataReady = useDataReady();
   const store = useStore();
+  useAppBadge();
 
   useEffect(() => {
     syncPush(supabase);

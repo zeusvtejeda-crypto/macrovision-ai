@@ -70,7 +70,7 @@ describe('payload', () => {
     expect(formatLocalStamp('2026-10-15T09:05:00')).toMatch(/15.*oct.*· 09:05/);
     expect(formatLocalStamp('2026-10-15')).not.toContain('·');
     const p = reminderPayload({ task_id: 't1', title: 'Pagar luz', due_at: '2026-10-15T18:00:00' });
-    expect(p).toMatchObject({ title: '⏰ Pagar luz', tag: 'task-t1', url: '/?tab=tasks' });
+    expect(p).toMatchObject({ title: '⏰ Pagar luz', tag: 'task-t1', url: '/tareas/t1' });
     expect(p.body).toMatch(/^Vence /);
     expect(reminderPayload({ task_id: 't2', title: 'x' }).body).toBe('Recordatorio de NEXO');
   });

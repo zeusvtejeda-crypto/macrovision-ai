@@ -107,6 +107,6 @@ export function reminderPayload(task, now = new Date()) {
     title: `⏰ ${title}`,
     body: (task.due_at ? `Vence ${formatLocalStamp(task.due_at)}` : 'Recordatorio de NEXO') + late,
     tag: `task-${task.task_id ?? task.id}`,
-    url: '/?tab=tasks',
+    url: `/tareas/${task.task_id ?? task.id}`,
   };
 }

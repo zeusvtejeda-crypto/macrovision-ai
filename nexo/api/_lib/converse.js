@@ -7,8 +7,8 @@ const HISTORY_LIMIT = 20;
 
 export async function converse({ db, message, tz, channel = 'app', client = makeClient(), model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5', deadlineAt = null, userId = null }) {
   const [{ data: memories = [] }, { data: past = [] }, { count: pushDevices }] = await Promise.all([
-    db.from('memories').select('content').order('created_at', { ascending: true }).limit(50),
-    db.from('chat_messages').select('role,content').order('created_at', { ascending: false }).limit(HISTORY_LIMIT),
+    db.from('memories').select('content,kind,source').is('deleted_at', null).order('created_at', { ascending: true }).limit(50),
+    db.from('chat_messages').select('role,content').is('deleted_at', null).order('created_at', { ascending: false }).limit(HISTORY_LIMIT),
     db.from('push_subscriptions').select('id', { count: 'exact', head: true }).is('gone_at', null),
   ]);
 

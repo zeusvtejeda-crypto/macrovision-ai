@@ -3,16 +3,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/chat.js": {
-      "maxDuration": 60
-    },
-    "api/cron/reminders.js": {
-      "maxDuration": 60
-    },
-    "api/push/test.js": {
-      "maxDuration": 15
-    },
-    "api/shortcut.js": {
+    "api/**/*.js": {
       "maxDuration": 60
     }
   },

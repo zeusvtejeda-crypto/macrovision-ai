@@ -238,6 +238,23 @@ $$;
 revoke all on function public.mark_push_gone(uuid[]) from public, anon;
 grant execute on function public.mark_push_gone(uuid[]) to authenticated;
 
+-- Horas de silencio del usuario (settings.prefs.quiet_from / quiet_to, 'HH:MM' en su zona): los avisos
+-- que caen dentro se posponen hasta que termine la ventana (no se pierden; la caducidad de 12 h sigue aplicando).
+create or replace function public.in_quiet_hours(p_user uuid, p_at timestamptz default now()) returns boolean
+language plpgsql stable set search_path = public as $$
+declare s record; local_t time; q_from time; q_to time;
+begin
+  select time_zone, prefs->>'quiet_from' as qf, prefs->>'quiet_to' as qt into s from public.settings where user_id = p_user and deleted_at is null;
+  if not found or s.qf is null or s.qt is null or s.qf = '' or s.qt = '' then return false; end if;
+  begin
+    q_from := s.qf::time; q_to := s.qt::time;
+    local_t := (p_at at time zone coalesce(nullif(s.time_zone, ''), 'America/Mazatlan'))::time;
+  exception when others then return false; end;
+  if q_from = q_to then return false; end if;
+  if q_from < q_to then return local_t >= q_from and local_t < q_to; end if;
+  return local_t >= q_from or local_t < q_to;  -- ventana que cruza medianoche (p. ej. 22:00 → 07:00)
+end $$;
+
 -- Reclama avisos vencidos de forma atómica (skip locked: dos crons simultáneos no duplican).
 -- Justo por usuario: máx. 5 por cuenta y ejecución, para que nadie acapare la cola.
 -- Avisos con más de 12 h de retraso (cron caído) se marcan 'expired' sin enviarse.
@@ -260,6 +277,7 @@ language sql security invoker set search_path = public as $$
     select id, remind_at, row_number() over (partition by user_id order by remind_at) as rn
       from public.tasks
      where remind_at <= now() and reminded_at is null and done = false
+       and not public.in_quiet_hours(user_id)
   ), picked as (
     select t.id
       from public.tasks t

@@ -137,6 +137,26 @@ reset role;
 select pg_temp.check((select count(*) from claimed where title = 'de A') = 1, 'el aviso de A sale aunque B tenga 1000 en cola');
 select pg_temp.check((select count(*) from claimed where user_id = :B::uuid) <= 5, 'máx. 5 avisos por usuario y ciclo');
 
+-- ---------- Horas de silencio ----------
+select pg_temp.check(not public.in_quiet_hours(:A::uuid), 'sin prefs → no hay silencio');
+set role authenticated;
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+select public.ensure_defaults() \g /dev/null
+update settings set prefs = '{"quiet_from":"22:00","quiet_to":"07:00"}', time_zone = 'America/Mazatlan';
+reset role;
+select pg_temp.check(public.in_quiet_hours(:A::uuid, '2026-10-14T06:30:00-07:00'), '06:30 Mazatlán está en silencio (22→07)');
+select pg_temp.check(not public.in_quiet_hours(:A::uuid, '2026-10-14T12:00:00-07:00'), '12:00 no está en silencio');
+select pg_temp.check(public.in_quiet_hours(:A::uuid, '2026-10-14T23:30:00-07:00'), '23:30 está en silencio');
+update tasks set remind_at = now() - interval '1 minute', reminded_at = null, reminder_status = null where title = 'de A';
+update settings set prefs = jsonb_build_object('quiet_from', to_char((now() at time zone 'America/Mazatlan') - interval '1 hour', 'HH24:MI'), 'quiet_to', to_char((now() at time zone 'America/Mazatlan') + interval '1 hour', 'HH24:MI')) where user_id = :A::uuid;
+set role service_role;
+select pg_temp.check((select count(*) from public.claim_due_reminders(100) where title = 'de A') = 0, 'en horas de silencio el aviso se pospone');
+reset role;
+update settings set prefs = '{}' where user_id = :A::uuid;
+set role service_role;
+select pg_temp.check((select count(*) from public.claim_due_reminders(100) where title = 'de A') = 1, 'al salir del silencio se envía');
+reset role;
+
 -- ---------- Avisos con más de 12 h de retraso: expiran sin enviarse ----------
 insert into tasks (user_id, title, remind_at) values (:A::uuid, 'muy vieja', now() - interval '13 hours');
 set role service_role;
