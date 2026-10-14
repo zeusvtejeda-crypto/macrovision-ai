@@ -76,8 +76,9 @@ export async function runAgent({ client, model, db, system, history, today, tz =
     const results = await Promise.all(
       toolUses.map(async (b) => {
         try {
-          const out = await runTool(b.name, b.input, { db, today, tz, now: new Date(), userId, actor: channel === 'siri' ? 'siri' : 'chat', batchId });
-          actions.push({ tool: b.name, ok: out?.ok !== false, enlace: out?.enlace || null, resumen: out?.resumen || null, aclaracion: Boolean(out?.necesita_aclaracion) });
+          const logIds = [];
+          const out = await runTool(b.name, b.input, { db, today, tz, now: new Date(), userId, actor: channel === 'siri' ? 'siri' : 'chat', batchId, logIds });
+          actions.push({ tool: b.name, ok: out?.ok !== false, enlace: out?.enlace || null, resumen: out?.resumen || null, aclaracion: Boolean(out?.necesita_aclaracion), historial: logIds });
           return { type: 'tool_result', tool_use_id: b.id, content: JSON.stringify(out) };
         } catch (err) {
           actions.push({ tool: b.name, ok: false });

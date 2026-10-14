@@ -13,7 +13,9 @@ export function hashToken(token) {
 }
 
 // Tablas con user_id que el agente puede tocar.
-const OWNED = new Set(['tasks', 'notes', 'transactions', 'memories', 'chat_messages', 'push_subscriptions']);
+const OWNED = new Set(['tasks', 'notes', 'transactions', 'memories', 'chat_messages', 'push_subscriptions', 'action_log', 'areas', 'projects', 'goals',
+  'clients', 'contacts', 'events', 'meetings', 'agreements', 'content_items', 'resources', 'subjects', 'grades', 'accounts', 'recurring_items',
+  'budgets', 'habits', 'habit_logs', 'daily_reviews', 'weekly_reviews', 'priorities', 'inbox_items', 'attachments', 'settings']);
 
 function withUser(rows, userId) {
   const one = (r) => ({ ...r, user_id: userId });

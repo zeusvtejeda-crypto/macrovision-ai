@@ -3,7 +3,7 @@
 import { TOOLS as V1_TOOLS, executeTool as executeV1 } from '../tools.js';
 import { ToolInputError } from './common.js';
 
-const MODULES = ['areas', 'inbox', 'tasks', 'agenda', 'meetings', 'clients', 'contacts', 'content', 'library', 'study', 'finance', 'habits', 'review', 'memory', 'history'];
+const MODULES = ['home', 'assistant', 'inbox', 'tasks', 'projects', 'agenda', 'meetings', 'clients', 'contacts', 'library', 'notes', 'study', 'finance', 'review', 'memory', 'history', 'settings'];
 
 let registry = null;
 async function load() {
@@ -14,9 +14,10 @@ async function load() {
     try {
       const mod = await import(`./${m}.js`);
       for (const t of mod.tools || []) {
-        if (tools.some((x) => x.name === t.name)) continue; // v1 tiene prioridad en nombres repetidos
-        tools.push(t);
-        execute[t.name] = mod.execute?.[t.name];
+        if (!mod.execute?.[t.name]) continue;
+        const i = tools.findIndex((x) => x.name === t.name);
+        if (i >= 0) tools[i] = t; else tools.push(t); // un módulo puede sustituir una herramienta v1
+        execute[t.name] = mod.execute[t.name];
       }
     } catch (err) {
       // Módulo aún no implementado (Node: ERR_MODULE_NOT_FOUND; vitest/vite: "Failed to load url")
@@ -32,14 +33,18 @@ export async function allTools() { return (await load()).tools; }
 // ctx: { db, today, tz, now, userId, actor } — añade ctx.log para el historial de acciones.
 export async function runTool(name, input, ctx) {
   const { execute } = await load();
+  // Registra la acción y devuelve el id del historial (para "Deshacer"); los ids se acumulan en ctx.logIds.
   const log = async (entry) => {
     try {
-      await ctx.db.from('action_log').insert({
+      const { data, error } = await ctx.db.from('action_log').insert({
         actor: ctx.actor || 'chat', tool: name, summary: entry.summary, target_table: entry.target_table || null, target_id: entry.target_id || null,
         op: entry.op || 'update', before: entry.before ?? null, after: entry.after ?? null, reversible: Boolean(entry.reversible),
         batch_id: ctx.batchId || null,
-      });
-    } catch (err) { console.warn('action_log', err?.message); }
+      }).select('id').single();
+      if (error) throw new Error(error.message);
+      if (Array.isArray(ctx.logIds)) ctx.logIds.push({ id: data.id, summary: entry.summary, reversible: Boolean(entry.reversible) });
+      return data.id;
+    } catch (err) { console.warn('action_log', err?.message); return null; }
   };
   const fullCtx = { ...ctx, log };
   if (execute[name]) return execute[name](input && typeof input === 'object' ? input : {}, fullCtx);
