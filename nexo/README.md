@@ -12,7 +12,8 @@ PWA privada: chat con Claude que **guarda y consulta registros reales** (tareas,
 | RLS por usuario (probado en Postgres 16) | ✅ |
 | Instalable (manifest, iconos, service worker) | ✅ |
 | Avisos push (iPhone/iPad instalada, Mac, Android, PC) | ✅ código y pruebas — falta tu despliegue (paso 5) |
-| Siri/Atajos, Calendario, Gmail, voz, avisos recurrentes | ⏳ pendiente |
+| Siri y Atajos (iPhone, iPad, Mac) | ✅ código y pruebas — falta crear el atajo (paso 6) |
+| Calendario, Gmail, avisos recurrentes | ⏳ pendiente |
 
 ## Arquitectura
 
@@ -76,12 +77,30 @@ Detalles:
 - **iPhone/iPad:** Safari → Compartir → *Añadir a pantalla de inicio*.
 - **iMac:** Safari → Archivo → *Añadir al Dock* (macOS 14 Sonoma o posterior; en Ventura, usa NEXO como pestaña de Safari).
 
+## 6. Siri y Atajos
+NEXO → **Ajustes** → *Siri y Atajos* → **Crear token** (uno por dispositivo; se muestra **una sola vez**, guárdalo como una contraseña) y sigue las instrucciones de esa pantalla, que ya traen tu URL y tu token para copiar. Resumen:
+
+1. App **Atajos** → **+** → nombre **NEXO**.
+2. **Dictar texto**.
+3. **Obtener contenido de URL** → `https://<tu dominio>/api/shortcut` · Método **POST** · Encabezado `Authorization: Bearer nexo_…` · Cuerpo **JSON** con campo `texto` = *Texto dictado*.
+4. **Leer texto** (respuesta hablada) o **Mostrar resultado**.
+5. “**Oye Siri, NEXO**”, o Botón de acción (iPhone 15 Pro o posterior). En Mac el mismo atajo llega por iCloud.
+
+Variantes sin Claude (rápidas y sin costo): agrega al JSON `accion` = `nota` (guarda lo dictado como nota) o `tarea` (lo agrega a Pendientes).
+
+Detalles:
+- Lo que dices por Siri aparece también en el Chat de NEXO.
+- Arquitectura: Atajos → `/api/shortcut` (token personal) → mismo agente que el chat, con respuestas cortas para voz.
+- Límites por token: 20 solicitudes/minuto y 300/día. Revoca un token en Ajustes si pierdes el dispositivo.
+- El token solo da acceso a **tu** cuenta: el servidor lo verifica por su huella (SHA-256) y filtra cada consulta por tu usuario.
+- Requiere `SUPABASE_SERVICE_ROLE_KEY` en Vercel (ya la pusiste para los avisos) y volver a ejecutar `supabase/schema.sql`.
+
 ## Desarrollo
 ```bash
 cp .env.example .env.local   # llena tus claves
 npm install
 npx vercel dev               # UI + /api/chat (npm run dev solo sirve la UI)
-npm test                     # 79 tests (vitest): herramientas, agente, endpoints, zona horaria/DST, push (servidor y cliente)
+npm test                     # 91 tests (vitest): herramientas, agente, endpoints, zona horaria/DST, push (servidor y cliente)
 npm run test:sql             # RLS, avisos y suscripciones contra Postgres local (si tienes PostgreSQL)
 npm run build
 # Prueba de humo en Chromium (service worker → notificación) — requiere Playwright:
@@ -96,6 +115,7 @@ node scripts/sw-push-smoke.mjs
 4. Crea algo en iMac → aparece en iPhone sin recargar.
 5. Segunda cuenta → no ve los datos de la primera.
 6. “Recuérdame tomar agua en 5 minutos” → llega la notificación con la app cerrada.
+7. “Oye Siri, NEXO” → “¿qué tengo pendiente hoy?” → responde en voz alta y la conversación aparece en el Chat.
 
 ## Costos
 - Supabase Free y Vercel Hobby: $0 para uso personal (límites de cada plan). El cron hace ~43,200 llamadas/mes a Vercel (Hobby incluye 1M).

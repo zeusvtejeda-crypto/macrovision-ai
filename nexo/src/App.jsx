@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase, configured } from './supabase.js';
 import { mxn, fmtDue, localToday, REMINDER_PRESETS, computeRemindAt, fmtInstant } from './format.js';
+import { createApiToken } from './tokens.js';
 import { pushStatus, enablePush, syncPush, disablePush, sendTestPush, thisDeviceEndpoint, storedEndpoint, isIOS, PUSH_EVENT, PUSH_STORAGE_KEY } from './push.js';
 
 const TABS = [
@@ -8,7 +9,7 @@ const TABS = [
   ['tasks', 'Pendientes', '✅'],
   ['notes', 'Notas', '📝'],
   ['money', 'Finanzas', '💸'],
-  ['memory', 'Memoria', '🧠'],
+  ['settings', 'Ajustes', '⚙️'],
 ];
 // Los queries de Supabase son perezosos: solo se ejecutan al hacer await.
 async function exec(q) {
@@ -97,7 +98,10 @@ function initialTab() {
   const t = params.get('tab');
   if (t) history.replaceState(null, '', location.pathname);
   if (TABS.some(([id]) => id === t)) return t;
-  try { return localStorage.getItem('nexo-tab') || 'chat'; } catch { return 'chat'; }
+  let saved = null;
+  try { saved = localStorage.getItem('nexo-tab'); } catch {}
+  if (saved === 'memory') saved = 'settings'; // pestaña renombrada
+  return TABS.some(([id]) => id === saved) ? saved : 'chat';
 }
 
 function Shell({ session }) {
@@ -140,7 +144,7 @@ function Shell({ session }) {
         {tab === 'tasks' && <Tasks />}
         {tab === 'notes' && <Notes />}
         {tab === 'money' && <Money />}
-        {tab === 'memory' && <Memory />}
+        {tab === 'settings' && <><Memory /><SiriCard /></>}
       </main>
     </div>
   );
@@ -526,4 +530,119 @@ function deviceName(ua = '') {
   if (/Android/.test(ua)) return 'Android';
   if (/Windows/.test(ua)) return 'Windows';
   return 'Navegador';
+}
+
+// Siri y Atajos: tokens personales + instrucciones para crear el atajo.
+function SiriCard() {
+  const [tokens, setTokens] = useState([]);
+  const [name, setName] = useState(() => deviceGuess());
+  const [fresh, setFresh] = useState(null); // token recién creado (se muestra una sola vez)
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const endpoint = `${location.origin}/api/shortcut`;
+
+  const load = useCallback(async () => {
+    const { data, error } = await supabase.from('api_tokens').select('id,name,prefix,created_at,last_used_at').order('created_at', { ascending: false });
+    if (!error) setTokens(data || []);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function create(e) {
+    e.preventDefault();
+    setBusy(true); setMsg('');
+    try { setFresh(await createApiToken(supabase, name)); await load(); } catch (err) { setMsg(err.message); } finally { setBusy(false); }
+  }
+  async function revoke(t) {
+    if (!confirm(`¿Revocar el token “${t.name}”? El atajo que lo use dejará de funcionar.`)) return;
+    const { error } = await supabase.from('api_tokens').delete().eq('id', t.id);
+    if (error) setMsg(error.message);
+    load();
+  }
+  const header = `Bearer ${fresh || 'nexo_…(tu token)'}`;
+
+  return (
+    <section className="siri">
+      <h2>Siri y Atajos</h2>
+      <p className="muted">Háblale a NEXO con “Oye Siri, NEXO”, el Botón de acción o la app Atajos en iPhone, iPad y Mac.</p>
+
+      <form className="card row" onSubmit={create}>
+        <input aria-label="Nombre del token" placeholder="Nombre (p. ej. iPhone)" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
+        <button disabled={busy || !name.trim()}>Crear token</button>
+      </form>
+      {msg && <p className="error">{msg}</p>}
+
+      {fresh && (
+        <div className="card fresh">
+          <p><b>Copia tu token ahora:</b> no se volverá a mostrar. Trátalo como una contraseña.</p>
+          <CopyField label="Token" value={fresh} />
+          <button className="ghost" onClick={() => setFresh(null)}>Ya lo copié</button>
+        </div>
+      )}
+
+      {tokens.length > 0 && (
+        <ul className="list">
+          {tokens.map((t) => (
+            <li key={t.id}>
+              <div className="grow">
+                <div>{t.name} <span className="muted small">({t.prefix}…)</span></div>
+                <div className="muted small">
+                  creado {new Date(t.created_at).toLocaleDateString('es-MX')}
+                  {t.last_used_at ? ` · último uso ${fmtInstant(t.last_used_at)}` : ' · sin usar'}
+                </div>
+              </div>
+              <button className="ghost" onClick={() => revoke(t)}>Revocar</button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <details className="card howto" open={Boolean(fresh)}>
+        <summary><b>Cómo crear el atajo “NEXO”</b> (iPhone, iPad o Mac)</summary>
+        <ol>
+          <li>Abre la app <b>Atajos</b> → <b>+</b> (nuevo atajo) y llámalo <b>NEXO</b>.</li>
+          <li>Agrega la acción <b>Dictar texto</b> (idioma: Español; dejar de escuchar: tras una pausa).</li>
+          <li>Agrega <b>Obtener contenido de URL</b> y pega la URL:
+            <CopyField label="URL" value={endpoint} />
+            Toca la flecha / <b>Mostrar más</b>:
+            <ul>
+              <li><b>Método</b>: POST</li>
+              <li><b>Encabezados</b> → Agregar: clave <code>Authorization</code>, valor:
+                <CopyField label="Valor del encabezado" value={header} />
+              </li>
+              <li><b>Cuerpo de la solicitud</b>: JSON → Agregar campo → Texto: clave <code>texto</code>, valor: la variable <b>Texto dictado</b>.</li>
+            </ul>
+          </li>
+          <li>Agrega <b>Leer texto</b> (para que Siri responda en voz alta) o <b>Mostrar resultado</b>, con <b>Contenido de URL</b>.</li>
+          <li>Listo: di <b>“Oye Siri, NEXO”</b>. En iPhone 15 Pro o posterior también puedes ponerlo en Ajustes → <b>Botón de acción</b> → Atajo.</li>
+        </ol>
+        <p className="muted small">
+          Atajos rápidos sin Claude (más rápidos y gratis): agrega al cuerpo JSON otro campo de texto <code>accion</code> con valor
+          <code>nota</code> (guarda lo dictado como nota) o <code>tarea</code> (lo agrega a Pendientes). Los atajos se sincronizan por iCloud
+          entre tu iPhone, iPad y Mac.
+        </p>
+      </details>
+    </section>
+  );
+}
+
+function CopyField({ label, value }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try { await navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    catch { window.prompt('Copia manualmente:', value); }
+  }
+  return (
+    <div className="copy">
+      <code aria-label={label}>{value}</code>
+      <button type="button" className="ghost" onClick={copy}>{copied ? 'Copiado ✓' : 'Copiar'}</button>
+    </div>
+  );
+}
+
+function deviceGuess() {
+  const ua = navigator.userAgent;
+  if (/iPhone/.test(ua)) return 'iPhone';
+  if (/iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'iPad';
+  if (/Macintosh/.test(ua)) return 'Mac';
+  return 'Atajo';
 }

@@ -65,6 +65,8 @@ begin
       'create policy "owner_all" on public.%I for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid())', t);
     execute format('revoke all on public.%I from anon', t);
     execute format('grant select, insert, update, delete on public.%I to authenticated', t);
+    -- Siri/Atajos (api/shortcut.js) actúa con service_role acotado al usuario del token.
+    execute format('grant select, insert, update, delete on public.%I to service_role', t);
   end loop;
 end $$;
 
@@ -105,8 +107,8 @@ create index if not exists tasks_pending_reminders on public.tasks (remind_at)
 revoke insert, update on public.tasks from authenticated;
 grant insert (title, notes, category, due_at, remind_at) on public.tasks to authenticated;
 grant update (title, notes, category, due_at, done, done_at, remind_at) on public.tasks to authenticated;
--- Supabase ya no concede privilegios implícitos en tablas nuevas (changelog 45329): el cron los necesita.
-grant select, update on public.tasks to service_role;
+-- Supabase ya no concede privilegios implícitos en tablas nuevas (changelog 45329): el cron y Siri los
+-- necesitan (concedidos arriba en el bucle de tablas).
 
 -- Cambiar la hora del aviso lo vuelve a armar (permite reprogramar un aviso ya enviado).
 create or replace function public.tasks_rearm_reminder() returns trigger
@@ -132,7 +134,8 @@ declare
   reopened boolean := tg_op = 'UPDATE' and old.done and not new.done;
   rescheduled boolean := tg_op = 'INSERT' or new.remind_at is distinct from old.remind_at;
 begin
-  if current_user <> 'authenticated' or new.remind_at is null or new.done or new.reminded_at is not null then
+  -- También para service_role (Siri/Atajos actúan con él); solo el superusuario (mantenimiento) se salta esto.
+  if current_user not in ('authenticated', 'service_role') or new.remind_at is null or new.done or new.reminded_at is not null then
     return new;
   end if;
   if not (reopened or rescheduled) then return new; end if;
@@ -274,3 +277,70 @@ language sql security invoker set search_path = public as $$
 $$;
 revoke all on function public.claim_due_reminders(int) from public, anon, authenticated;
 grant execute on function public.claim_due_reminders(int) to service_role;
+
+-- ============================================================
+-- Siri y Atajos: tokens personales
+-- ============================================================
+-- El token ("nexo_…") se genera en el navegador y se muestra una sola vez; aquí solo se guarda su
+-- SHA-256. /api/shortcut lo valida con service_role y actúa solo sobre los datos de ese usuario.
+create table if not exists public.api_tokens (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 60),
+  token_hash text not null unique check (token_hash ~ '^[0-9a-f]{64}$'),
+  prefix text not null check (prefix ~ '^nexo_[A-Za-z0-9_-]{4}$'),
+  time_zone text,
+  created_at timestamptz not null default now(),
+  last_used_at timestamptz,
+  window_start timestamptz,
+  window_count int not null default 0,
+  day_start date,
+  day_count int not null default 0
+);
+create index if not exists api_tokens_user on public.api_tokens (user_id);
+
+alter table public.api_tokens enable row level security;
+alter table public.api_tokens force row level security;
+drop policy if exists "owner_select" on public.api_tokens;
+drop policy if exists "owner_insert" on public.api_tokens;
+drop policy if exists "owner_delete" on public.api_tokens;
+create policy "owner_select" on public.api_tokens for select to authenticated using (user_id = auth.uid());
+create policy "owner_insert" on public.api_tokens for insert to authenticated with check (user_id = auth.uid());
+create policy "owner_delete" on public.api_tokens for delete to authenticated using (user_id = auth.uid());
+revoke all on public.api_tokens from anon, authenticated;
+-- El hash no se expone al navegador después de crearlo; los contadores son del servidor.
+grant select (id, user_id, name, prefix, time_zone, created_at, last_used_at) on public.api_tokens to authenticated;
+grant insert (name, token_hash, prefix, time_zone) on public.api_tokens to authenticated;
+grant delete on public.api_tokens to authenticated;
+grant select, update on public.api_tokens to service_role;
+
+-- Máximo 10 tokens por cuenta.
+create or replace function public.api_tokens_limit() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended('nexo_tokens:' || new.user_id::text, 0));
+  if (select count(*) from public.api_tokens where user_id = new.user_id) >= 10 then
+    raise exception 'Máximo 10 tokens por cuenta: revoca uno antes de crear otro' using errcode = '54000';
+  end if;
+  return new;
+end $$;
+drop trigger if exists api_tokens_limit on public.api_tokens;
+create trigger api_tokens_limit before insert on public.api_tokens
+  for each row execute function public.api_tokens_limit();
+
+-- Valida un token y cuenta su uso de forma atómica (límite por minuto y por día, UTC).
+-- Devuelve 0 filas si el token no existe (o fue revocado = borrado).
+create or replace function public.use_api_token(p_hash text, p_per_minute int default 20, p_per_day int default 300)
+returns table (user_id uuid, time_zone text, allowed boolean)
+language sql security invoker set search_path = public as $$
+  update public.api_tokens t
+     set window_count = case when t.window_start > now() - interval '1 minute' then t.window_count + 1 else 1 end,
+         window_start = case when t.window_start > now() - interval '1 minute' then t.window_start else now() end,
+         day_count = case when t.day_start = (now() at time zone 'utc')::date then t.day_count + 1 else 1 end,
+         day_start = (now() at time zone 'utc')::date,
+         last_used_at = now()
+   where t.token_hash = p_hash
+  returning t.user_id, t.time_zone, (t.window_count <= p_per_minute and t.day_count <= p_per_day);
+$$;
+revoke all on function public.use_api_token(text, int, int) from public, anon, authenticated;
+grant execute on function public.use_api_token(text, int, int) to service_role;

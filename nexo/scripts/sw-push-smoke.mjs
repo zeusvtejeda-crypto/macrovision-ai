@@ -40,6 +40,7 @@ try {
     await ctx.route('https://demo.supabase.co/**', (route) => {
       const url = route.request().url();
       if (url.includes('/rest/v1/tasks')) return route.fulfill({ json: tasks });
+      if (url.includes('/rest/v1/api_tokens') && route.request().method() === 'POST') return route.fulfill({ status: 201, json: [] });
       if (url.includes('/rest/v1/')) return route.fulfill({ json: [] });
       if (url.includes('/auth/v1/user')) return route.fulfill({ json: user });
       return route.fulfill({ status: 404, body: '' });
@@ -55,6 +56,22 @@ try {
     }
     await page.evaluate(() => navigator.serviceWorker.ready);
     if (shots) await page.screenshot({ path: `${shots}/tasks-${name}.png`, fullPage: true });
+
+    // Ajustes → Siri y Atajos → crear token (se genera en el navegador; solo viaja su hash)
+    let tokenBody = null;
+    page.on('request', (r) => { if (r.url().includes('/rest/v1/api_tokens') && r.method() === 'POST') tokenBody = r.postDataJSON(); });
+    await page.getByRole('button', { name: /Ajustes/ }).click();
+    await page.getByRole('heading', { name: 'Siri y Atajos' }).waitFor();
+    await page.getByRole('button', { name: 'Crear token' }).click();
+    const shown = await page.getByLabel('Token', { exact: true }).textContent({ timeout: 5000 });
+    if (!/^nexo_[A-Za-z0-9_-]{43}$/.test(shown)) fail(`token inesperado: ${shown}`);
+    const body = Array.isArray(tokenBody) ? tokenBody[0] : tokenBody;
+    if (!body || body.token || JSON.stringify(body).includes(shown) || !/^[0-9a-f]{64}$/.test(body.token_hash)) fail(`el token en claro viajó al servidor: ${JSON.stringify(body)}`);
+    if (!(await page.getByLabel('Valor del encabezado').textContent()).includes(shown)) fail('instrucciones sin el token');
+    const overflow = await page.evaluate(() => [...document.querySelectorAll('.siri *')].some((el) => el.getBoundingClientRect().right > document.documentElement.clientWidth + 1 && !el.closest('.copy code')));
+    if (overflow) fail('la sección Siri se desborda horizontalmente');
+    await page.locator('details.howto').evaluate((d) => { d.open = true; });
+    if (shots) await page.locator('.siri').screenshot({ path: `${shots}/siri-${name}.png` });
     if (errors.length) fail(`errores JS: ${errors.join(' | ')}`);
 
     if (name === 'mac') {

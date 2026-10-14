@@ -5,7 +5,7 @@ const MAX_ITERATIONS = 8;
 // Modelos que aceptan fallbacks: "default" (reintento en otro modelo si hay rechazo).
 const FALLBACK_MODELS = new Set(['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-fable-5-1']);
 
-export function buildSystem({ today, time, weekday, tz, memories, pushDevices = 0 }) {
+export function buildSystem({ today, time, weekday, tz, memories, pushDevices = 0, channel = 'app' }) {
   const mem = memories.length ? memories.map((m) => `- ${m.content}`).join('\n') : '(sin preferencias guardadas)';
   return `Eres NEXO, el asistente personal privado del usuario (vida personal, escuela, trabajo, salud y finanzas). Responde en español de México, directo y breve.
 
@@ -20,7 +20,9 @@ Reglas:
 Ahora: ${weekday} ${today} ${time} (zona ${tz}).
 
 Preferencias guardadas del usuario:
-${mem}`;
+${mem}${channel === 'siri' ? `
+
+Canal: Siri / Atajos de Apple. Tu respuesta se leerá en voz alta: 1 o 2 frases cortas, sin listas, sin markdown, sin emojis y sin URLs. Si hay varios pendientes, menciona como máximo 3 y di cuántos más hay.` : ''}`;
 }
 
 // history: [{role:'user'|'assistant', content:string}], último = mensaje nuevo del usuario.

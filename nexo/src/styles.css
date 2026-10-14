@@ -84,3 +84,18 @@ button.ghost { background: none; border: 1px solid var(--line); color: var(--tex
 .devices li { display: flex; align-items: center; gap: 6px; }
 .bell { white-space: nowrap; }
 .bell button.link { padding: 0 0 0 6px; font-size: 13px; }
+
+/* Siri y Atajos */
+.siri { margin-top: 24px; }
+.siri .list { margin-bottom: 12px; }
+.fresh { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-bottom: 12px; border-color: var(--accent); }
+.fresh > button { justify-self: start; }
+.fresh p { margin: 0; }
+.copy { display: flex; gap: 8px; align-items: center; margin: 6px 0; min-width: 0; max-width: 100%; }
+.copy button { flex: 0 0 auto; }
+.copy code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font-size: 13px; }
+.howto summary { cursor: pointer; }
+.howto { min-width: 0; overflow-wrap: anywhere; }
+.howto ol { padding-left: 20px; margin: 10px 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.howto li { min-width: 0; }
+.howto ul { padding-left: 18px; margin: 6px 0; display: grid; gap: 4px; }

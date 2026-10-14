@@ -240,4 +240,79 @@ select pg_temp.check((select count(*) from push_subscriptions where user_id = :A
 -- ---------- Desmarcar: estado 'missed' (no 'expired') ----------
 select pg_temp.check((select reminder_status from tasks where title = 'reabrir') = 'missed', 'desmarcar tarde → missed');
 
+-- ---------- Siri y Atajos: tokens personales ----------
+set role authenticated;
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+insert into api_tokens (name, token_hash, prefix, time_zone) values ('iPhone', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'nexo_AbCd', 'America/Mexico_City');
+select pg_temp.check((select count(*) from api_tokens) = 1, 'A ve su token');
+do $$ begin
+  perform token_hash from api_tokens;
+  raise exception 'FALLÓ: el navegador puede leer token_hash';
+exception when insufficient_privilege then raise notice 'ok: token_hash no es legible desde el navegador'; end $$;
+do $$ begin
+  insert into api_tokens (name, token_hash, prefix, user_id) values ('x', 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', 'nexo_AbCd', '00000000-0000-0000-0000-00000000000b');
+  raise exception 'FALLÓ: insertó token para otra cuenta';
+exception when insufficient_privilege then raise notice 'ok: no puede crear tokens para otra cuenta'; end $$;
+do $$ begin
+  update api_tokens set window_count = -999;
+  raise exception 'FALLÓ: editó contadores';
+exception when insufficient_privilege then raise notice 'ok: contadores protegidos'; end $$;
+do $$ begin
+  perform public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+  raise exception 'FALLÓ: authenticated pudo usar use_api_token';
+exception when insufficient_privilege then raise notice 'ok: use_api_token solo para el servidor'; end $$;
+select set_config('request.jwt.claim.sub', :B, false) \g /dev/null
+select pg_temp.check((select count(*) from api_tokens) = 0, 'B no ve tokens de A');
+delete from api_tokens;
+reset role;
+select pg_temp.check((select count(*) from api_tokens) = 1, 'B no puede revocar tokens de A');
+
+set role service_role;
+select pg_temp.check((select user_id = :A::uuid and allowed and time_zone = 'America/Mexico_City' from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 100)), 'token válido → usuario A');
+select pg_temp.check((select count(*) from public.use_api_token('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 3, 100)) = 0, 'token desconocido → nada');
+select pg_temp.check((select allowed from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 100)), '2º uso permitido');
+select pg_temp.check((select allowed from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 100)), '3er uso permitido');
+select pg_temp.check((select not allowed from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 100)), '4º uso en el mismo minuto → límite');
+update api_tokens set window_start = now() - interval '2 minutes';
+select pg_temp.check((select allowed from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 100)), 'pasado el minuto se permite de nuevo');
+update api_tokens set day_count = 100, day_start = (now() at time zone 'utc')::date, window_start = null;
+select pg_temp.check((select not allowed from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 100)), 'límite diario');
+reset role;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+delete from api_tokens where name = 'iPhone';
+reset role;
+set role service_role;
+select pg_temp.check((select count(*) from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')) = 0, 'token revocado deja de funcionar');
+reset role;
+
+-- Máximo 10 tokens por cuenta
+set role authenticated;
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+insert into api_tokens (name, token_hash, prefix) select 't' || g, lpad(to_hex(g), 64, '0'), 'nexo_AbCd' from generate_series(1, 10) g;
+do $$ begin
+  insert into api_tokens (name, token_hash, prefix) values ('11', 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd', 'nexo_AbCd');
+  raise exception 'FALLÓ: más de 10 tokens';
+exception when sqlstate '54000' then raise notice 'ok: máximo 10 tokens por cuenta'; end $$;
+reset role;
+
+-- Siri actúa con service_role: los avisos siguen validándose (no en el pasado)
+set role service_role;
+do $$ begin
+  insert into tasks (user_id, title, remind_at) values ('00000000-0000-0000-0000-00000000000a', 'x', now() - interval '1 hour');
+  raise exception 'FALLÓ: service_role creó un aviso en el pasado';
+exception when sqlstate '22023' then raise notice 'ok: avisos validados también para service_role'; end $$;
+-- Todo lo que hace api/shortcut.js (herramientas + historial) con service_role
+insert into tasks (user_id, title, remind_at) values (:A::uuid, 'siri tarea', now() + interval '1 hour');
+update tasks set done = true, done_at = now() where title = 'siri tarea' and user_id = :A::uuid;
+insert into notes (user_id, content) values (:A::uuid, 'siri nota');
+insert into transactions (user_id, kind, amount, category) values (:A::uuid, 'expense', 50, 'café');
+insert into memories (user_id, content) values (:A::uuid, 'siri memoria');
+insert into chat_messages (user_id, role, content) values (:A::uuid, 'user', 'hola'), (:A::uuid, 'assistant', 'hola');
+select count(*) from notes where user_id = :A::uuid \g /dev/null
+select count(*) from push_subscriptions where user_id = :A::uuid and gone_at is null \g /dev/null
+reset role;
+select pg_temp.check((select count(*) from notes where content = 'siri nota') = 1, 'service_role puede hacer todo el flujo de Siri');
+
 \echo TODAS LAS PRUEBAS SQL PASARON

@@ -11,6 +11,9 @@
     },
     "api/push/test.js": {
       "maxDuration": 15
+    },
+    "api/shortcut.js": {
+      "maxDuration": 60
     }
   },
   "headers": [
