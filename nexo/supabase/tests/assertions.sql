@@ -221,6 +221,22 @@ reset role;
 select pg_temp.check((select count(*) from push_subscriptions where user_id = :A::uuid and gone_at is null) = 8,
   'límite de 10: 7 activas + 1 nueva se conservan; se descarta una caducada');
 
+-- Rotación con la cuenta llena (10): reemplazar no desaloja a ningún otro dispositivo
+delete from push_subscriptions where user_id = :A::uuid;
+insert into push_subscriptions (user_id, endpoint, p256dh, auth, created_at)
+  select :A::uuid, 'https://fcm.googleapis.com/fcm/send/otro' || g, :P256, :AUTH, now() - (g || ' days')::interval
+  from generate_series(1, 9) g;
+insert into push_subscriptions (user_id, endpoint, p256dh, auth) values (:A::uuid, 'https://web.push.apple.com/ipad-viejo', :P256, :AUTH);
+set role authenticated;
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+select count(*) from (select public.register_push_subscription('https://web.push.apple.com/ipad-nuevo', :P256, :AUTH, 'iPad',
+  'https://web.push.apple.com/ipad-viejo')) x \g /dev/null
+reset role;
+select pg_temp.check((select count(*) from push_subscriptions where user_id = :A::uuid and endpoint like '%otro%') = 9
+  and not exists (select 1 from push_subscriptions where endpoint like '%ipad-viejo')
+  and exists (select 1 from push_subscriptions where endpoint like '%ipad-nuevo'),
+  'rotación con 10 dispositivos: reemplaza sin desalojar a otro');
+
 -- ---------- Desmarcar: estado 'missed' (no 'expired') ----------
 select pg_temp.check((select reminder_status from tasks where title = 'reabrir') = 'missed', 'desmarcar tarde → missed');
 

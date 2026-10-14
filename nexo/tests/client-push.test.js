@@ -48,8 +48,12 @@ function fakeBrowser({ permission = 'granted', askResult = 'granted', ua = 'Mozi
 function fakeSupabase(store, userId = 'u1') {
   return fakeDb(store, userId, {
     rpc: {
-      register_push_subscription: ({ p_endpoint, p_user_agent }, st) => {
+      register_push_subscription: ({ p_endpoint, p_user_agent, p_replaces }, st) => {
         st.push_subscriptions ??= [];
+        if (p_replaces) {
+          const i = st.push_subscriptions.findIndex((r) => r.endpoint === p_replaces && r.user_id === userId);
+          if (i >= 0) st.push_subscriptions.splice(i, 1);
+        }
         const existing = st.push_subscriptions.find((r) => r.endpoint === p_endpoint);
         if (existing) Object.assign(existing, { user_id: userId, user_agent: p_user_agent, gone_at: null });
         else st.push_subscriptions.push({ id: `s${++seq}`, user_id: userId, endpoint: p_endpoint, user_agent: p_user_agent });
@@ -163,7 +167,7 @@ describe('cliente push', () => {
     markGone();
     expect(await push.enablePush(db)).toBe('granted');
     expect(browser.sub.endpoint).not.toBe(dead);
-    expect(store.push_subscriptions.find((r) => r.endpoint === browser.sub.endpoint)?.gone_at ?? null).toBeNull();
+    expect(store.push_subscriptions.map((r) => [r.endpoint, r.gone_at ?? null])).toEqual([[browser.sub.endpoint, null]]); // sin huérfana
   });
 
   for (const [name, change] of [

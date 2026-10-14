@@ -192,8 +192,10 @@ grant select, update, delete on public.push_subscriptions to service_role;
 -- Alta/actualización de la suscripción de este dispositivo. Si el endpoint estaba ligado a otra
 -- cuenta (otro usuario usó este dispositivo), se reasigna: un dispositivo = una cuenta.
 -- p_user_agent: nombre legible del dispositivo (p. ej. "iPad").
+-- p_replaces: endpoint anterior de ESTE dispositivo (rotación/renovación); se borra antes de aplicar el límite.
+drop function if exists public.register_push_subscription(text, text, text, text);
 create or replace function public.register_push_subscription(
-  p_endpoint text, p_p256dh text, p_auth text, p_user_agent text default null
+  p_endpoint text, p_p256dh text, p_auth text, p_user_agent text default null, p_replaces text default null
 ) returns uuid
 language plpgsql security definer set search_path = public as $$
 declare
@@ -202,6 +204,10 @@ declare
 begin
   if uid is null then raise exception 'not authenticated' using errcode = '28000'; end if;
   if not public.is_push_endpoint(p_endpoint) then raise exception 'invalid push endpoint' using errcode = '22023'; end if;
+
+  if p_replaces is not null and p_replaces <> p_endpoint then
+    delete from public.push_subscriptions where user_id = uid and endpoint = p_replaces;
+  end if;
 
   insert into public.push_subscriptions (user_id, endpoint, p256dh, auth, user_agent)
   values (uid, p_endpoint, p_p256dh, p_auth, left(p_user_agent, 300))
@@ -218,8 +224,8 @@ begin
   );
   return sub_id;
 end $$;
-revoke all on function public.register_push_subscription(text, text, text, text) from public, anon;
-grant execute on function public.register_push_subscription(text, text, text, text) to authenticated;
+revoke all on function public.register_push_subscription(text, text, text, text, text) from public, anon;
+grant execute on function public.register_push_subscription(text, text, text, text, text) to authenticated;
 
 -- /api/push/test (con el JWT del usuario) marca como caducadas sus propias suscripciones (404/410).
 create or replace function public.mark_push_gone(p_ids uuid[]) returns void

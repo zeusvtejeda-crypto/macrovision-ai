@@ -75,10 +75,13 @@ function subscribe(reg) {
   return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_KEY) });
 }
 
-async function save(supabase, sub) {
+// replaces: endpoint anterior de este dispositivo; el servidor lo borra en la misma operación
+// (antes de aplicar el límite de 10, para no desalojar otro dispositivo sin necesidad).
+async function save(supabase, sub, replaces = null) {
   const j = sub.toJSON();
   const { error } = await supabase.rpc('register_push_subscription', {
     p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_user_agent: deviceLabel(),
+    p_replaces: replaces && replaces !== j.endpoint ? replaces : null,
   });
   if (error) throw new Error(error.message === 'invalid push endpoint' ? 'Este navegador usa un servicio push no compatible.' : error.message);
 }
@@ -102,10 +105,15 @@ export async function enablePush(supabase) {
   try {
     const reg = await registration();
     let sub = await reg.pushManager.getSubscription();
+    let replaces = stored();
     // Claves VAPID distintas, o el servicio push ya la dio por caducada (410): pedir una nueva.
-    if (sub && (!sameKey(sub) || (await serverRow(supabase, sub.endpoint))?.gone)) { await sub.unsubscribe(); sub = null; }
+    if (sub && (!sameKey(sub) || (await serverRow(supabase, sub.endpoint))?.gone)) {
+      replaces = sub.endpoint;
+      await sub.unsubscribe();
+      sub = null;
+    }
     if (!sub) sub = await subscribe(reg);
-    await save(supabase, sub);
+    await save(supabase, sub, replaces);
     setStored(sub.endpoint);
     return 'granted';
   } finally {
@@ -141,8 +149,7 @@ export async function syncPush(supabase) {
     // push la dio por caducada (gone) o cambiaron las claves VAPID. Se reemplaza.
     if (sub && (!sameKey(sub) || (row.gone && sub.endpoint === mine))) { await sub.unsubscribe(); sub = null; }
     if (!sub) sub = await subscribe(reg);
-    await save(supabase, sub);
-    if (sub.endpoint !== mine) await removeRow(supabase, mine).catch(() => {});
+    await save(supabase, sub, mine);
     setStored(sub.endpoint);
     return true;
   } catch {
