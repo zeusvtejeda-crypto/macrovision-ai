@@ -19,7 +19,7 @@ describe('bucle del agente', () => {
     ]);
     const r = await runAgent({ client, model: 'claude-sonnet-5-5', db: fakeDb(store), system: 's', history: [{ role: 'user', content: 'Gasté 450 en gasolina' }], today: '2026-10-14' });
     expect(r.text).toBe('Registré $450 en gasolina.');
-    expect(r.actions).toEqual([{ tool: 'registrar_movimiento', ok: true }]);
+    expect(r.actions).toMatchObject([{ tool: 'registrar_movimiento', ok: true }]);
     expect(store.transactions).toHaveLength(1);
     const second = client.calls[1];
     expect(second.fallbacks).toBe('default');

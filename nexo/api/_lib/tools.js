@@ -103,7 +103,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/;
 const PAST_SLACK_MS = 2 * 60 * 1000;
 
-class ToolInputError extends Error {}
+import { ToolInputError } from './tools/common.js';
 
 function str(v, name, { required = false, max = 2000 } = {}) {
   if (v === undefined || v === null || v === '') {
@@ -270,3 +270,4 @@ export function summarize(rows) {
 }
 
 export { ToolInputError };
+export const TOOLS_V1 = TOOLS;

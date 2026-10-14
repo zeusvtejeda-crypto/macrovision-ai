@@ -344,6 +344,14 @@ select public.ensure_defaults() \g /dev/null
 select pg_temp.check((select count(*) from areas) = 3 and (select count(*) from settings) = 1, 'ensure_defaults crea ajustes y 3 áreas una sola vez');
 select pg_temp.check((select time_zone = 'America/Mazatlan' and currency = 'MXN' from settings), 'valores por defecto: Mazatlán / MXN');
 
+select public.rotate_ics_token() as ics1 \gset
+select public.rotate_ics_token() as ics2 \gset
+select pg_temp.check(length(:'ics1') = 64 and :'ics1' <> :'ics2' and (select ics_token = :'ics2' from settings), 'rotate_ics_token genera y rota el token');
+do $$ begin
+  update settings set ics_token = 'x';
+  raise exception 'FALLÓ: el usuario escribió ics_token';
+exception when insufficient_privilege then raise notice 'ok: ics_token solo lo escribe el servidor'; end $$;
+
 -- sync_push: crear con id del cliente, actualizar con versión, conflicto, borrar
 select public.sync_push('[{"table":"tasks","id":"11111111-1111-1111-1111-111111111111","op":"upsert","base_version":null,
   "row":{"title":"Sincronizada","priority":2,"status":"pending","reminded_at":"2020-01-01T00:00:00Z","user_id":"00000000-0000-0000-0000-00000000000b"}}]'::jsonb) as r \gset

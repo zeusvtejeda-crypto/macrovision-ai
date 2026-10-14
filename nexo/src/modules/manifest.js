@@ -1,0 +1,40 @@
+// Qué módulo atiende cada ruta (nombres de src/router.jsx) y qué entradas aparecen en "Más".
+// Los módulos que aún no existen caen en las pantallas de la versión 1 o en "Próximamente".
+export const ROUTE_MODULE = {
+  home: 'home',
+  assistant: 'assistant',
+  agenda: 'agenda',
+  projects: 'projects', project: 'projects', goals: 'projects', goal: 'projects',
+  tasks: 'tasks', task: 'tasks',
+  inbox: 'inbox', inboxItem: 'inbox',
+  library: 'library', resource: 'library',
+  notes: 'notes', note: 'notes',
+  clients: 'clients', client: 'clients', content: 'clients',
+  contacts: 'contacts', contact: 'contacts',
+  meetings: 'meetings', meeting: 'meetings',
+  study: 'study', subject: 'study',
+  finance: 'finance',
+  habits: 'review', review: 'review',
+  memory: 'memory',
+  history: 'history',
+  settings: 'settings',
+  more: 'more',
+};
+
+export const MORE_ENTRIES = [
+  ['/bandeja', 'Bandeja de entrada', '📥'],
+  ['/tareas', 'Tareas', '✅'],
+  ['/notas', 'Notas', '📝'],
+  ['/reuniones', 'Reuniones', '🤝'],
+  ['/clientes', 'Clientes y marcas', '🏷️'],
+  ['/contenido', 'Contenido', '🎬'],
+  ['/contactos', 'Contactos', '👥'],
+  ['/estudios', 'Estudios', '🎓'],
+  ['/finanzas', 'Finanzas', '💸'],
+  ['/habitos', 'Hábitos', '🔁'],
+  ['/revision', 'Revisión diaria y semanal', '🪞'],
+  ['/objetivos', 'Objetivos', '🎯'],
+  ['/memoria', 'Memoria', '🧠'],
+  ['/historial', 'Historial de acciones', '🕓'],
+  ['/ajustes', 'Ajustes', '⚙️'],
+];

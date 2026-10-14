@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { TOOLS, executeTool, ToolInputError } from './tools.js';
+import { allTools, runTool, ToolInputError } from './tools/index.js';
 
 const MAX_ITERATIONS = 8;
 // Por voz: menos pasos y respuestas cortas (Atajos corta pronto la conexión y se leerá en voz alta).
@@ -29,7 +29,8 @@ Canal: Siri / Atajos de Apple. Tu respuesta se leerá en voz alta: 1 o 2 frases 
 
 // history: [{role:'user'|'assistant', content:string}], último = mensaje nuevo del usuario.
 // deadlineAt: instante (ms) tras el cual no se hacen más llamadas (Siri/Atajos cortan pronto).
-export async function runAgent({ client, model, db, system, history, today, tz = 'America/Mexico_City', channel = 'app', deadlineAt = null }) {
+export async function runAgent({ client, model, db, system, history, today, tz = 'America/Mexico_City', channel = 'app', deadlineAt = null, userId = null, batchId = null }) {
+  const tools = await allTools();
   const maxIterations = channel === 'siri' ? SIRI_LIMITS.iterations : MAX_ITERATIONS;
   const messages = history.map((m) => ({ role: m.role, content: m.content }));
   const actions = [];
@@ -40,7 +41,7 @@ export async function runAgent({ client, model, db, system, history, today, tz =
       model,
       max_tokens: channel === 'siri' ? SIRI_LIMITS.maxTokens : 4096,
       system,
-      tools: TOOLS,
+      tools,
       tool_choice: { type: 'auto' },
       output_config: { effort: 'low' },
       messages,
@@ -75,8 +76,8 @@ export async function runAgent({ client, model, db, system, history, today, tz =
     const results = await Promise.all(
       toolUses.map(async (b) => {
         try {
-          const out = await executeTool(b.name, b.input, { db, today, tz });
-          actions.push({ tool: b.name, ok: out?.ok !== false });
+          const out = await runTool(b.name, b.input, { db, today, tz, now: new Date(), userId, actor: channel === 'siri' ? 'siri' : 'chat', batchId });
+          actions.push({ tool: b.name, ok: out?.ok !== false, enlace: out?.enlace || null, resumen: out?.resumen || null, aclaracion: Boolean(out?.necesita_aclaracion) });
           return { type: 'tool_result', tool_use_id: b.id, content: JSON.stringify(out) };
         } catch (err) {
           actions.push({ tool: b.name, ok: false });

@@ -418,6 +418,10 @@ create table if not exists public.settings (
   created_at timestamptz not null default now()
 );
 call public.nexo_common('settings');
+-- ics_token solo lo escribe el servidor (rotate_ics_token)
+revoke insert, update on public.settings from authenticated;
+grant insert (id, user_id, time_zone, currency, locale, prefs, created_at, deleted_at) on public.settings to authenticated; -- user_id lo valida la RLS
+grant update (time_zone, currency, locale, prefs, deleted_at) on public.settings to authenticated;
 
 -- ---------- Áreas (Vida personal, VILLEDA, Estudios, proyectos propios…) ----------
 create table if not exists public.areas (
@@ -1030,9 +1034,12 @@ create table if not exists public.action_log (
 alter table public.action_log enable row level security;
 alter table public.action_log force row level security;
 drop policy if exists "owner_select" on public.action_log;
+drop policy if exists "owner_insert" on public.action_log;
 create policy "owner_select" on public.action_log for select to authenticated using (user_id = auth.uid());
+create policy "owner_insert" on public.action_log for insert to authenticated with check (user_id = auth.uid());
 revoke all on public.action_log from anon, authenticated;
 grant select on public.action_log to authenticated;
+grant insert (actor, tool, summary, target_table, target_id, op, before, after, reversible, batch_id) on public.action_log to authenticated;
 grant select, insert, update on public.action_log to service_role;
 create index if not exists action_log_user_created on public.action_log (user_id, created_at desc);
 
@@ -1057,6 +1064,21 @@ begin
 end $$;
 revoke all on function public.ensure_defaults() from public, anon;
 grant execute on function public.ensure_defaults() to authenticated;
+
+-- ---------- Calendario ICS privado (suscripción desde Apple Calendar) ----------
+-- Genera o rota el token de la URL del calendario. Devuelve el token nuevo.
+create or replace function public.rotate_ics_token() returns text
+language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); tok text;
+begin
+  if uid is null then raise exception 'not authenticated' using errcode = '28000'; end if;
+  tok := md5(random()::text || clock_timestamp()::text || uid::text) || md5(random()::text || clock_timestamp()::text);
+  insert into public.settings (user_id, ics_token) values (uid, tok)
+    on conflict (user_id) do update set ics_token = excluded.ics_token;
+  return tok;
+end $$;
+revoke all on function public.rotate_ics_token() from public, anon;
+grant execute on function public.rotate_ics_token() to authenticated;
 
 -- ---------- Sincronización con control de conflictos ----------
 -- Tablas que el cliente puede sincronizar y columnas que solo escribe el servidor.

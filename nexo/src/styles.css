@@ -99,3 +99,46 @@ button.ghost { background: none; border: 1px solid var(--line); color: var(--tex
 .howto ol { padding-left: 20px; margin: 10px 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .howto li { min-width: 0; }
 .howto ul { padding-left: 18px; margin: 6px 0; display: grid; gap: 4px; }
+
+/* ===== Armazón v2 ===== */
+.nav a { display: flex; gap: 10px; align-items: center; color: var(--text); text-decoration: none; border-radius: 10px; padding: 10px 14px; }
+.nav a.active { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.syncdot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-left: 6px; background: var(--muted); padding: 0; }
+.syncdot.ok { background: var(--pos); } .syncdot.busy { background: var(--accent2); } .syncdot.warn { background: #f59e0b; } .syncdot.offline { background: var(--neg); }
+.banner { border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; font-size: 14px; background: color-mix(in srgb, #f59e0b 18%, transparent); }
+.banner.offline { background: color-mix(in srgb, var(--neg) 14%, transparent); }
+.page-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.page-head h2 { margin: 0; flex: 1; }
+.page-head .back { font-size: 26px; line-height: 1; text-decoration: none; color: var(--accent2); padding: 0 6px; }
+.page-actions { display: flex; gap: 6px; }
+.field { display: grid; gap: 4px; }
+.field-label { font-size: 13px; color: var(--muted); }
+.empty { text-align: center; padding: 28px 12px; display: grid; gap: 6px; justify-items: center; }
+.empty-icon { font-size: 36px; }
+.empty p { margin: 0; }
+.badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 20%, transparent); color: var(--text); }
+.badge.pos { background: color-mix(in srgb, var(--pos) 22%, transparent); } .badge.neg { background: color-mix(in srgb, var(--neg) 22%, transparent); }
+.badge.accent { background: color-mix(in srgb, var(--accent) 24%, transparent); } .badge.warn { background: color-mix(in srgb, #f59e0b 26%, transparent); }
+.btn, a.btn { display: inline-block; background: var(--accent); color: #fff; border-radius: 10px; padding: 10px 14px; text-decoration: none; }
+button.small { padding: 6px 10px; font-size: 14px; }
+.li { display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.li-link { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; color: inherit; text-decoration: none; }
+.li-title { overflow-wrap: anywhere; }
+.more .ico { font-size: 20px; }
+.sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-end; justify-content: center; z-index: 50; }
+.sheet { background: var(--panel); width: 100%; max-height: 92vh; overflow: auto; border-radius: 16px 16px 0 0; padding: 12px 16px calc(16px + var(--safe-b)); }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.sheet-head h3 { margin: 0; }
+.sheet-body { display: grid; gap: 10px; }
+@media (min-width: 761px) {
+  .sheet-backdrop { align-items: center; }
+  .sheet { width: min(560px, 92vw); border-radius: 16px; }
+  .sheet.wide { width: min(880px, 94vw); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+}
+.toaster { position: fixed; left: 50%; bottom: calc(76px + var(--safe-b)); transform: translateX(-50%); display: grid; gap: 6px; z-index: 60; }
+.toast { background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px; display: flex; gap: 12px; align-items: center; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+.toast .link { color: var(--accent2); padding: 0; }
+@media (max-width: 760px) { .nav a { flex-direction: column; gap: 2px; padding: 6px 4px; font-size: 11px; flex: 1; align-items: center; } .syncdot { position: absolute; top: 6px; left: 50%; margin: 0; width: 8px; height: 8px; } .brand { display: block; position: relative; width: 0; overflow: visible; padding: 0; } .brand img, .brand { font-size: 0; } }
+.page { display: grid; gap: 12px; align-content: start; }
+.page > .list, .page > .card { margin: 0; }

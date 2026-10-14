@@ -35,10 +35,12 @@ try {
     await ctx.grantPermissions(['notifications'], { origin: ORIGIN });
     await ctx.addInitScript(([s]) => {
       localStorage.setItem('sb-demo-auth-token', s);
-      localStorage.setItem('nexo-tab', 'tasks');
+      localStorage.removeItem('nexo-last-route');
     }, [JSON.stringify(session)]);
     await ctx.route('https://demo.supabase.co/**', (route) => {
       const url = route.request().url();
+      if (url.includes('/rest/v1/rpc/sync_pull')) return route.fulfill({ json: { server_time: new Date().toISOString(), tables: { tasks: { rows: tasks, more: false } } } });
+      if (url.includes('/rest/v1/rpc/')) return route.fulfill({ json: {} });
       if (url.includes('/rest/v1/tasks')) return route.fulfill({ json: tasks });
       if (url.includes('/rest/v1/api_tokens') && route.request().method() === 'POST') return route.fulfill({ status: 201, json: [] });
       if (url.includes('/rest/v1/')) return route.fulfill({ json: [] });
@@ -48,8 +50,9 @@ try {
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
-    await page.goto(ORIGIN);
+    await page.goto(`${ORIGIN}/tareas`);
     await page.getByRole('heading', { name: 'Pendientes' }).waitFor({ timeout: 10000 });
+    if (!(await page.getByRole('navigation', { name: 'Principal' }).getByRole('link').count())) fail('sin navegación principal');
     await page.getByText('Pagar la luz').waitFor();
     for (const label of ['Aviso programado', 'Aviso enviado', 'No se entregó: no había dispositivos con avisos activos']) {
       if (!(await page.getByLabel(label).count())) fail(`no se ve el estado "${label}"`);
@@ -60,7 +63,8 @@ try {
     // Ajustes → Siri y Atajos → crear token (se genera en el navegador; solo viaja su hash)
     let tokenBody = null;
     page.on('request', (r) => { if (r.url().includes('/rest/v1/api_tokens') && r.method() === 'POST') tokenBody = r.postDataJSON(); });
-    await page.getByRole('button', { name: /Ajustes/ }).click();
+    await page.getByRole('link', { name: /Más/ }).click();
+    await page.getByRole('link', { name: /Ajustes/ }).click();
     await page.getByRole('heading', { name: 'Siri y Atajos' }).waitFor();
     await page.getByRole('button', { name: 'Crear token' }).click();
     const shown = await page.getByLabel('Token', { exact: true }).textContent({ timeout: 5000 });
