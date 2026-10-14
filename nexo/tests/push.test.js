@@ -18,6 +18,7 @@ describe('isPushEndpoint', () => {
       'https://web.push.apple.com/QGuQyavXutnMHT2Xaa',
       'https://updates.push.services.mozilla.com/wpush/v2/gAAAA',
       'https://wns2-par02p.notify.windows.com/w/?token=BQYAAA',
+      'https://jmt17.google.com/fcm/send/abc', // Chrome Beta/Canary
     ]) expect(isPushEndpoint(u), u).toBe(true);
   });
   it('rechaza todo lo demás (SSRF)', () => {
@@ -31,12 +32,23 @@ describe('isPushEndpoint', () => {
 });
 
 describe('vapidFromEnv', () => {
-  it('exige las tres variables y un sujeto válido', () => {
-    const base = { VITE_VAPID_PUBLIC_KEY: 'pub', VAPID_PRIVATE_KEY: 'priv', VAPID_SUBJECT: 'mailto:yo@ejemplo.com' };
-    expect(vapidFromEnv(base)).toEqual({ publicKey: 'pub', privateKey: 'priv', subject: 'mailto:yo@ejemplo.com' });
+  const keys = webpush.generateVAPIDKeys();
+  const base = { VITE_VAPID_PUBLIC_KEY: keys.publicKey, VAPID_PRIVATE_KEY: keys.privateKey, VAPID_SUBJECT: 'mailto:yo@ejemplo.com' };
+
+  it('exige las tres variables con formato válido (y tolera saltos de línea al pegar)', () => {
+    expect(vapidFromEnv(base)).toEqual({ ...keys, subject: 'mailto:yo@ejemplo.com' });
+    expect(vapidFromEnv({ ...base, VITE_VAPID_PUBLIC_KEY: `${keys.publicKey}\n` })?.publicKey).toBe(keys.publicKey);
     expect(vapidFromEnv({ ...base, VAPID_PRIVATE_KEY: '' })).toBeNull();
-    expect(vapidFromEnv({ ...base, VAPID_SUBJECT: 'mailto: yo@ejemplo.com' })).toBeNull();
+    expect(vapidFromEnv({ ...base, VAPID_PRIVATE_KEY: 'priv' })).toBeNull();
+    expect(vapidFromEnv({ ...base, VITE_VAPID_PUBLIC_KEY: keys.privateKey })).toBeNull();
+  });
+
+  it('rechaza sujetos que Apple no acepta', () => {
     expect(vapidFromEnv({ ...base, VAPID_SUBJECT: 'https://nexo.vercel.app' })).not.toBeNull();
+    for (const bad of ['mailto: yo@ejemplo.com', 'mailto:yo@localhost', 'mailto:yo@mac.local', 'https://localhost:3000',
+      'https://127.0.0.1', 'mailto:tu-correo@example.com', 'http://nexo.app', 'yo@ejemplo.com', 'mailto:yo@ejemplo']) {
+      expect(vapidFromEnv({ ...base, VAPID_SUBJECT: bad }), bad).toBeNull();
+    }
   });
 });
 
@@ -48,6 +60,12 @@ describe('payload', () => {
     expect(p).toMatchObject({ title: '⏰ Pagar luz', tag: 'task-t1', url: '/?tab=tasks' });
     expect(p.body).toMatch(/^Vence /);
     expect(reminderPayload({ task_id: 't2', title: 'x' }).body).toBe('Recordatorio de NEXO');
+  });
+  it('indica el retraso cuando el aviso sale tarde', () => {
+    const now = new Date('2026-10-14T18:00:00Z');
+    expect(reminderPayload({ task_id: 't', title: 'x', remind_at: '2026-10-14T17:58:00Z' }, now).body).toBe('Recordatorio de NEXO');
+    expect(reminderPayload({ task_id: 't', title: 'x', remind_at: '2026-10-14T17:35:00Z' }, now).body).toContain('25 min de retraso');
+    expect(reminderPayload({ task_id: 't', title: 'x', remind_at: '2026-10-14T13:00:00Z' }, now).body).toContain('5 h de retraso');
   });
 });
 
@@ -148,6 +166,7 @@ describe('Web Push real (servidor HTTPS local)', () => {
     });
     const summary = await processDueReminders({ db, vapid, agent, allowEndpoint: () => true });
     expect(summary).toMatchObject({ claimed: 1, delivered: 1, removedSubscriptions: 1, retried: 0 });
+    expect(store.tasks[0].reminder_status).toBe('sent');
     expect(received.map((r) => r.url).sort()).toEqual(['/push/a1', '/push/gone-a2']); // B no recibe nada
     expect(decrypt(received.find((r) => r.url === '/push/a1'), a1)).toMatchObject({ title: '⏰ Dentista', tag: 'task-tA' });
     expect(store.push_subscriptions.map((s) => s.id)).toEqual(['sa1', 'sb1']);
@@ -173,14 +192,24 @@ describe('processDueReminders (reintentos)', () => {
     const s = await processDueReminders({ db: fakeDb(store, null, { admin: true, rpc: claim(5) }), vapid, sender: down });
     expect(s).toMatchObject({ retried: 0, abandoned: 1 });
     expect(store.tasks[0].reminded_at).toBe('x');
+    expect(store.tasks[0].reminder_status).toBe('failed');
   });
 
   it('sin dispositivos → no reintenta; sin avisos → no consulta nada', async () => {
     const store = { push_subscriptions: [], tasks: [{ id: 't1', user_id: 'A', reminded_at: 'x' }] };
     expect(await processDueReminders({ db: fakeDb(store, null, { admin: true, rpc: claim(1) }), vapid, sender: down }))
       .toMatchObject({ noDevices: 1, retried: 0 });
+    expect(store.tasks[0].reminder_status).toBe('no_devices');
     expect(await processDueReminders({ db: fakeDb({}, null, { admin: true, rpc: { claim_due_reminders: () => [] } }), vapid }))
       .toMatchObject({ claimed: 0 });
+  });
+
+  it('rechazo del servicio (p. ej. VAPID inválido) → rejected, sin reintentos', async () => {
+    const store = { push_subscriptions: [sub], tasks: [{ id: 't1', user_id: 'A', reminded_at: 'x' }] };
+    const forbidden = { sendNotification: async () => { throw Object.assign(new Error('403'), { statusCode: 403 }); } };
+    expect(await processDueReminders({ db: fakeDb(store, null, { admin: true, rpc: claim(1) }), vapid, sender: forbidden }))
+      .toMatchObject({ rejected: 1, retried: 0 });
+    expect(store.tasks[0].reminder_status).toBe('rejected');
   });
 
   it('propaga error del claim', async () => {

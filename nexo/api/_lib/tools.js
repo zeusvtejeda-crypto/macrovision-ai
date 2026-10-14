@@ -137,11 +137,19 @@ function reminderAt(v, tz, now) {
   return at.toISOString();
 }
 
-const TASK_FIELDS = 'id,title,due_at,category,done,notes,remind_at,reminded_at';
+const TASK_FIELDS = 'id,title,due_at,category,done,notes,remind_at,reminded_at,reminder_status';
+const REMINDER_STATES = {
+  sent: 'enviado',
+  no_devices: 'no entregado: no había dispositivos con avisos activos',
+  rejected: 'no entregado: el servicio push lo rechazó',
+  failed: 'no entregado: el servicio push falló',
+  expired: 'no enviado: venció hace más de 12 h',
+};
 function taskOut(t, tz) {
   if (!t) return t;
-  const { remind_at, reminded_at, ...rest } = t;
-  return { ...rest, aviso: remind_at ? formatInZone(remind_at, tz) : null, aviso_enviado: Boolean(reminded_at) };
+  const { remind_at, reminded_at, reminder_status, ...rest } = t;
+  const aviso_estado = !remind_at ? null : !reminded_at ? 'programado' : REMINDER_STATES[reminder_status] || 'enviando';
+  return { ...rest, aviso: remind_at ? formatInZone(remind_at, tz) : null, aviso_estado };
 }
 
 // ctx: { db, today, tz, now } — today = 'YYYY-MM-DD' en la zona del usuario
@@ -155,8 +163,9 @@ export async function executeTool(name, input, { db, today, tz = 'America/Mexico
         due_at: date(input.fecha_limite, 'fecha_limite', ISO_DATETIME),
         category: CATEGORIAS.has(categoria) ? categoria : 'otro',
         notes: str(input.notas, 'notas'),
-        remind_at: reminderAt(input.recordatorio, tz, now),
       };
+      const remind_at = reminderAt(input.recordatorio, tz, now);
+      if (remind_at) row.remind_at = remind_at;
       const t = await run(db.from('tasks').insert(row).select(TASK_FIELDS).single());
       return { ok: true, tarea: taskOut(t, tz) };
     }

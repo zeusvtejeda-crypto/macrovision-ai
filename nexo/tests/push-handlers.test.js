@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import webpush from 'web-push';
 import cron from '../api/cron/reminders.js';
 import pushTest from '../api/push/test.js';
 import { hasBearerSecret } from '../api/_lib/supabase.js';
@@ -9,13 +10,14 @@ function mockRes() {
   res.json = (b) => { res.body = b; return res; };
   return res;
 }
+const KEYS = webpush.generateVAPIDKeys();
 const call = async (h, req) => { const res = mockRes(); await h({ headers: {}, ...req }, res); return res; };
 
 describe('/api/cron/reminders', () => {
   beforeEach(() => {
     Object.assign(process.env, {
       CRON_SECRET: 's3cr3t', VITE_SUPABASE_URL: 'https://example.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'srv',
-      VITE_VAPID_PUBLIC_KEY: 'pub', VAPID_PRIVATE_KEY: 'priv', VAPID_SUBJECT: 'mailto:a@b.co',
+      VITE_VAPID_PUBLIC_KEY: KEYS.publicKey, VAPID_PRIVATE_KEY: KEYS.privateKey, VAPID_SUBJECT: 'mailto:yo@ejemplo.com',
     });
   });
 
@@ -39,7 +41,7 @@ describe('/api/push/test', () => {
   beforeEach(() => {
     Object.assign(process.env, {
       VITE_SUPABASE_URL: 'https://example.supabase.co', VITE_SUPABASE_ANON_KEY: 'anon',
-      VITE_VAPID_PUBLIC_KEY: 'pub', VAPID_PRIVATE_KEY: 'priv', VAPID_SUBJECT: 'mailto:a@b.co',
+      VITE_VAPID_PUBLIC_KEY: KEYS.publicKey, VAPID_PRIVATE_KEY: KEYS.privateKey, VAPID_SUBJECT: 'mailto:yo@ejemplo.com',
     });
   });
   it('solo POST', async () => expect((await call(pushTest, { method: 'GET' })).statusCode).toBe(405));

@@ -2,7 +2,8 @@ import webpush from 'web-push';
 
 // Solo enviamos a servicios de push reales (evita que una suscripción falsa convierta
 // el servidor en un proxy hacia URLs arbitrarias). Debe coincidir con is_push_endpoint() en SQL.
-const EXACT_HOSTS = new Set(['fcm.googleapis.com', 'android.googleapis.com', 'updates.push.services.mozilla.com']);
+// jmt17.google.com: Chrome Beta/Dev/Canary y Chromium sin marca.
+const EXACT_HOSTS = new Set(['fcm.googleapis.com', 'android.googleapis.com', 'jmt17.google.com', 'updates.push.services.mozilla.com']);
 const SUFFIX_HOSTS = ['.push.apple.com', '.notify.windows.com'];
 
 export function isPushEndpoint(url) {
@@ -20,8 +21,19 @@ export function vapidFromEnv(env = process.env) {
   const privateKey = env.VAPID_PRIVATE_KEY;
   const subject = env.VAPID_SUBJECT;
   if (!publicKey || !privateKey || !subject) return null;
-  if (!/^(mailto:[^\s@]+@[^\s@]+|https:\/\/\S+)$/.test(subject)) return null; // Apple rechaza sujetos mal formados
-  return { publicKey, privateKey, subject };
+  if (!validSubject(subject)) return null;
+  if (!/^[A-Za-z0-9_-]{87}$/.test(publicKey.trim()) || !/^[A-Za-z0-9_-]{43}$/.test(privateKey.trim())) return null;
+  return { publicKey: publicKey.trim(), privateKey: privateKey.trim(), subject };
+}
+
+// Apple responde 403 BadJwtToken si el sujeto no es un mailto:/https: público y bien formado.
+function validSubject(subject) {
+  const m = /^(?:mailto:[^\s@]+@([^\s@/]+)|https:\/\/([^\s/:]+)(?:[/:]\S*)?)$/.exec(subject);
+  const host = (m?.[1] || m?.[2] || '').toLowerCase();
+  if (!host || !host.includes('.')) return false;
+  if (/^\d+(\.\d+){3}$/.test(host) || host.startsWith('[')) return false;
+  if (/(^|\.)example\.(com|net|org)$/.test(host)) return false; // dominios reservados de ejemplo (RFC 2606)
+  return !/(^|\.)(localhost|local|test|invalid|example|internal)$/.test(host);
 }
 
 // Envía `payload` a cada suscripción. No lanza: clasifica resultados.
@@ -61,11 +73,13 @@ export function formatLocalStamp(local) {
   return m[4] ? `${day} · ${m[4]}:${m[5]}` : day;
 }
 
-export function reminderPayload(task) {
+export function reminderPayload(task, now = new Date()) {
   const title = String(task.title || 'Recordatorio').slice(0, 120);
+  const lateMin = task.remind_at ? Math.round((now - new Date(task.remind_at)) / 60000) : 0;
+  const late = lateMin >= 10 ? ` (aviso con ${lateMin >= 120 ? `${Math.round(lateMin / 60)} h` : `${lateMin} min`} de retraso)` : '';
   return {
     title: `⏰ ${title}`,
-    body: task.due_at ? `Vence ${formatLocalStamp(task.due_at)}` : 'Recordatorio de NEXO',
+    body: (task.due_at ? `Vence ${formatLocalStamp(task.due_at)}` : 'Recordatorio de NEXO') + late,
     tag: `task-${task.task_id ?? task.id}`,
     url: '/?tab=tasks',
   };

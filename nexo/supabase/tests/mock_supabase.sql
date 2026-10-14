@@ -10,7 +10,6 @@ do $$ begin
   if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then create publication supabase_realtime; end if;
 end $$;
 grant usage on schema public, auth to anon, authenticated, service_role;
--- Supabase da privilegios por defecto a los tres roles en tablas nuevas de public.
-alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
-alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
+-- Como los proyectos Supabase actuales: SIN privilegios implícitos en tablas nuevas (changelog 45329).
+-- schema.sql debe conceder explícitamente todo lo que use cada rol.
 insert into auth.users values ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b') on conflict do nothing;

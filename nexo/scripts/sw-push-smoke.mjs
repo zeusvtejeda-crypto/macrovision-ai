@@ -24,6 +24,8 @@ try {
   const tasks = [
     { id: 't1', title: 'Pagar la luz', category: 'finanzas', due_at: later.toISOString().slice(0, 16), done: false, remind_at: new Date(later - 3600e3).toISOString(), reminded_at: null, created_at: now.toISOString() },
     { id: 't2', title: 'Entregar tarea de cálculo', category: 'escuela', due_at: null, done: false, remind_at: null, reminded_at: null, created_at: now.toISOString() },
+    { id: 't3', title: 'Tomar vitaminas', category: 'salud', due_at: null, done: false, remind_at: new Date(now - 3600e3).toISOString(), reminded_at: new Date(now - 3600e3).toISOString(), reminder_status: 'sent', created_at: now.toISOString() },
+    { id: 't4', title: 'Llamar al dentista', category: 'salud', due_at: null, done: false, remind_at: new Date(now - 7200e3).toISOString(), reminded_at: new Date(now - 7200e3).toISOString(), reminder_status: 'no_devices', created_at: now.toISOString() },
   ];
 
   // channel 'chromium' = Chromium completo en modo headless (el headless-shell no tiene notificaciones).
@@ -48,7 +50,9 @@ try {
     await page.goto(ORIGIN);
     await page.getByRole('heading', { name: 'Pendientes' }).waitFor({ timeout: 10000 });
     await page.getByText('Pagar la luz').waitFor();
-    if (!(await page.getByText('🔔').count())) fail('no se ve el aviso programado');
+    for (const label of ['Aviso programado', 'Aviso enviado', 'No se entregó: no había dispositivos con avisos activos']) {
+      if (!(await page.getByLabel(label).count())) fail(`no se ve el estado "${label}"`);
+    }
     await page.evaluate(() => navigator.serviceWorker.ready);
     if (shots) await page.screenshot({ path: `${shots}/tasks-${name}.png`, fullPage: true });
     if (errors.length) fail(`errores JS: ${errors.join(' | ')}`);

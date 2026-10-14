@@ -28,6 +28,7 @@ export function fakeDb(store = {}, userId = 'u1', { rpc = {}, admin = false } = 
         order(c, o = {}) { st.order.push([c, o.ascending !== false]); return q; },
         limit(n) { st.limit = n; return q; },
         single() { st.single = true; return q; },
+        maybeSingle() { st.single = true; return q; },
         then(res, rej) { return Promise.resolve(exec()).then(res, rej); },
       };
       function exec() {
@@ -42,7 +43,7 @@ export function fakeDb(store = {}, userId = 'u1', { rpc = {}, admin = false } = 
         if (st.op === 'delete') { for (const r of out) rows.splice(rows.indexOf(r), 1); return { data: null, error: null }; }
         for (const [c, asc] of st.order.reverse()) out = [...out].sort((a, b) => ((a[c] ?? '') > (b[c] ?? '') ? 1 : -1) * (asc ? 1 : -1));
         if (st.limit) out = out.slice(0, st.limit);
-        return { data: st.single ? out[0] : out, error: null };
+        return { data: st.single ? out[0] ?? null : out, error: null };
       }
       return q;
     },

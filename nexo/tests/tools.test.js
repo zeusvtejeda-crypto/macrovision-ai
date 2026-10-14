@@ -84,7 +84,7 @@ describe('recordatorios en herramientas', () => {
     const r = await executeTool('crear_tarea', { titulo: 'Pagar luz', recordatorio: '2026-10-14T17:00' }, ctx(fakeDb(store)));
     expect(store.tasks[0].remind_at).toBe('2026-10-14T23:00:00.000Z');
     expect(r.tarea.aviso).toBe('2026-10-14T17:00');
-    expect(r.tarea.aviso_enviado).toBe(false);
+    expect(r.tarea.aviso_estado).toBe('programado');
   });
 
   it('rechaza avisos en el pasado o inválidos', async () => {
@@ -113,7 +113,17 @@ describe('recordatorios en herramientas', () => {
     const store = {};
     await executeTool('crear_tarea', { titulo: 'Cita', recordatorio: '2026-10-20T08:15' }, ctx(fakeDb(store)));
     const l = await executeTool('listar_tareas', {}, ctx(fakeDb(store)));
-    expect(l.tareas[0]).toMatchObject({ aviso: '2026-10-20T08:15', aviso_enviado: false });
+    expect(l.tareas[0]).toMatchObject({ aviso: '2026-10-20T08:15', aviso_estado: 'programado' });
     expect(l.tareas[0]).not.toHaveProperty('remind_at');
+    store.tasks[0].reminded_at = '2026-10-20T14:15:00Z';
+    store.tasks[0].reminder_status = 'no_devices';
+    const l2 = await executeTool('listar_tareas', { estado: 'todas' }, ctx(fakeDb(store)));
+    expect(l2.tareas[0].aviso_estado).toMatch(/no entregado/);
+  });
+
+  it('crear_tarea sin recordatorio no envía remind_at (compatible antes de migrar)', async () => {
+    const store = {};
+    await executeTool('crear_tarea', { titulo: 'Sin aviso' }, ctx(fakeDb(store)));
+    expect(store.tasks[0]).not.toHaveProperty('remind_at');
   });
 });

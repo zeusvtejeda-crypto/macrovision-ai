@@ -28,6 +28,7 @@ iPhone/iPad/iMac (PWA, React) ──► Supabase (Auth + Postgres + RLS + Realti
 1. Crea proyecto en supabase.com.
 2. SQL Editor → pega y ejecuta `supabase/schema.sql` (idempotente).
 3. Authentication → Providers → Email activo, con verificación de correo.
+   Después de crear **tu** cuenta en NEXO: Authentication → Sign In / Providers → desactiva **Allow new users to sign up** (es una app personal; evita que desconocidos creen cuentas).
 4. Project Settings → API → copia **URL** y **anon/publishable key**. Nunca uses `service_role` aquí.
 
 ## 2. Claude API
@@ -40,38 +41,44 @@ iPhone/iPad/iMac (PWA, React) ──► Supabase (Auth + Postgres + RLS + Realti
 2. Environment Variables:
    - `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
    - `ANTHROPIC_API_KEY` (sin prefijo `VITE_`), `ANTHROPIC_MODEL=claude-sonnet-5-5`
-3. Deploy. Copia la URL HTTPS.
-4. Supabase → Authentication → URL Configuration: Site URL = URL de Vercel (y en Redirect URLs).
+3. Deploy. Copia el **dominio de producción** (Project → Domains, p. ej. `nexo-tuusuario.vercel.app`), no la URL de un deployment concreto (esas cambian y pueden pedir login).
+4. Supabase → Authentication → URL Configuration: Site URL = ese dominio (y en Redirect URLs).
+
+> **Actualizar una versión ya desplegada:** ejecuta primero `supabase/schema.sql` en el SQL Editor (es idempotente) y **después** haz push/deploy del código nuevo. Al revés, la app nueva pediría columnas que aún no existen.
 
 ## 4. Avisos push (recordatorios reales)
 Una fecha límite **no** avisa: el aviso es el campo *Aviso* (formulario) o “recuérdame…” en el chat.
 
-1. En tu Mac: `npm run secrets` → imprime `VITE_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `CRON_SECRET`. Cambia el correo del `VAPID_SUBJECT` por el tuyo.
+1. En tu Mac, dentro de `nexo/`: `npm install` y luego `npm run secrets` → imprime `VITE_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `CRON_SECRET`. Cambia el correo del `VAPID_SUBJECT` por el tuyo.
 2. Vercel → Environment Variables: esas 4 + `SUPABASE_SERVICE_ROLE_KEY` (Supabase → Settings → API; **solo servidor**). Redeploy.
-3. Supabase → SQL Editor: vuelve a ejecutar `supabase/schema.sql` (es idempotente; agrega tablas de avisos).
-4. Supabase → SQL Editor: sigue `supabase/cron.sql` (activa `pg_cron`/`pg_net`, guarda URL y `CRON_SECRET` en Vault, programa el job cada minuto).
+3. Supabase → SQL Editor: vuelve a ejecutar `supabase/schema.sql` (es idempotente; agrega tablas de avisos). Hazlo **antes** del redeploy del paso 2 si NEXO ya estaba en producción.
+4. Supabase → SQL Editor: sigue `supabase/cron.sql` (activa `pg_cron`/`pg_net`, guarda en Vault la URL `https://<dominio de producción>/api/cron/reminders` y el `CRON_SECRET`, programa el job cada minuto y una limpieza diaria del historial).
    - Vercel Hobby solo permite cron diario; por eso el reloj vive en Supabase (gratis).
 5. En cada dispositivo: abre NEXO **instalado** → Pendientes → **Activar avisos** → **Probar**.
    - iPhone/iPad: iOS/iPadOS 16.4+ y abrir desde el icono de pantalla de inicio (en Safari normal no hay push).
-   - Mac: Safari 16+ (o la app del Dock), Chrome o Edge.
+   - Mac: Safari en macOS 13 Ventura o posterior; la app del Dock (Archivo → Añadir al Dock) requiere macOS 14 Sonoma o posterior. Chrome/Edge también sirven, pero **solo avisan mientras el navegador esté abierto** (aunque no tenga ventanas); si lo cierras con ⌘Q no llegan.
 6. Verifica: crea “Prueba” con *Aviso en otra hora…* a 2 min → debe llegar con NEXO cerrado.
    Si no llega: `select status_code, content from net._http_response order by created desc limit 5;` en Supabase.
 
 Detalles:
 - Precisión: ±1 min. Si el servicio de push falla (5xx), reintenta cada minuto hasta 5 veces.
-- Cerrar sesión desliga el dispositivo; otra cuenta en el mismo equipo se queda con los avisos de ese equipo.
-- Máx. 10 dispositivos por cuenta; los caducados (iOS borró la app, permisos revocados) se limpian solos.
+- Estado en cada tarea: 🔔 programado · ✅ enviado · ⚠️ no entregado (p. ej. ningún dispositivo tenía avisos activos) · ⌛ no enviado por llevar >12 h de retraso (cron caído o tarea desmarcada). Para reintentar, cambia la hora del aviso.
+- Si un aviso sale con ≥10 min de retraso, la notificación lo indica.
+- “Desactivar” o “Quitar” un dispositivo se respeta: NEXO no vuelve a suscribirlo solo al abrirse.
+- Cerrar sesión (solo en ese dispositivo) desactiva sus avisos.
+- Límites anti-abuso: máx. 10 dispositivos y 200 avisos pendientes por cuenta; el cron atiende máx. 5 avisos por cuenta y minuto.
+- Los dispositivos caducados (iOS borró la app, permisos revocados) se limpian solos.
 
 ## 5. Instalar
 - **iPhone/iPad:** Safari → Compartir → *Añadir a pantalla de inicio*.
-- **iMac:** Safari → Archivo → *Añadir al Dock*.
+- **iMac:** Safari → Archivo → *Añadir al Dock* (macOS 14 Sonoma o posterior; en Ventura, usa NEXO como pestaña de Safari).
 
 ## Desarrollo
 ```bash
 cp .env.example .env.local   # llena tus claves
 npm install
 npx vercel dev               # UI + /api/chat (npm run dev solo sirve la UI)
-npm test                     # 52 tests (vitest): herramientas, agente, endpoints, zona horaria/DST, push
+npm test                     # 69 tests (vitest): herramientas, agente, endpoints, zona horaria/DST, push (servidor y cliente)
 npm run test:sql             # RLS, avisos y suscripciones contra Postgres local (si tienes PostgreSQL)
 npm run build
 # Prueba de humo en Chromium (service worker → notificación) — requiere Playwright:

@@ -21,7 +21,7 @@ export const REMINDER_PRESETS = [
   ['1d', '1 día antes'],
   ['custom', 'Aviso en otra hora…'],
 ];
-const OFFSETS = { at: 0, '10m': 10 * 60e3, '1h': 3600e3, '1d': 86400e3 };
+const OFFSETS = { at: 0, '10m': 10 * 60e3, '1h': 3600e3 };
 
 // Calcula el instante del aviso (ISO UTC) a partir de horas locales del navegador
 // ("YYYY-MM-DDTHH:mm" de <input type="datetime-local">). Lanza Error con mensaje para el usuario.
@@ -33,7 +33,9 @@ export function computeRemindAt(preset, due, custom, now = new Date()) {
     at = new Date(custom);
   } else {
     if (!due) throw new Error('Pon fecha y hora límite para usar ese aviso.');
-    at = new Date(new Date(due).getTime() - OFFSETS[preset]);
+    at = new Date(due);
+    if (preset === '1d') at.setDate(at.getDate() - 1); // mismo reloj del día anterior, aunque cambie el horario
+    else at = new Date(at.getTime() - OFFSETS[preset]);
   }
   if (Number.isNaN(at.getTime())) throw new Error('Hora de aviso inválida.');
   if (at.getTime() < now.getTime() - 60e3) throw new Error('La hora del aviso ya pasó.');

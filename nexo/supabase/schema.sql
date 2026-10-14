@@ -89,8 +89,17 @@ end $$;
 alter table public.tasks add column if not exists remind_at timestamptz;
 alter table public.tasks add column if not exists reminded_at timestamptz;
 alter table public.tasks add column if not exists remind_attempts int not null default 0;
+-- Resultado del envío: sent | no_devices | rejected | failed | expired (lo escribe solo el servidor).
+alter table public.tasks add column if not exists reminder_status text;
 create index if not exists tasks_pending_reminders on public.tasks (remind_at)
   where remind_at is not null and reminded_at is null and done = false;
+
+-- Los usuarios solo escriben columnas propias; reminded_at/remind_attempts/reminder_status son del cron.
+revoke insert, update on public.tasks from authenticated;
+grant insert (title, notes, category, due_at, remind_at) on public.tasks to authenticated;
+grant update (title, notes, category, due_at, done, done_at, remind_at) on public.tasks to authenticated;
+-- Supabase ya no concede privilegios implícitos en tablas nuevas (changelog 45329): el cron los necesita.
+grant select, update on public.tasks to service_role;
 
 -- Cambiar la hora del aviso lo vuelve a armar (permite reprogramar un aviso ya enviado).
 create or replace function public.tasks_rearm_reminder() returns trigger
@@ -99,6 +108,7 @@ begin
   if new.remind_at is distinct from old.remind_at then
     new.reminded_at := null;
     new.remind_attempts := 0;
+    new.reminder_status := null;
   end if;
   return new;
 end $$;
@@ -106,11 +116,32 @@ drop trigger if exists tasks_rearm_reminder on public.tasks;
 create trigger tasks_rearm_reminder before update of remind_at on public.tasks
   for each row execute function public.tasks_rearm_reminder();
 
+-- Avisos de usuarios: no en el pasado (>5 min) y máximo 200 pendientes por cuenta.
+create or replace function public.tasks_validate_reminder() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if current_user <> 'authenticated' or new.remind_at is null then return new; end if;
+  if tg_op = 'UPDATE' and new.remind_at is not distinct from old.remind_at then return new; end if;
+  if new.remind_at < now() - interval '5 minutes' then
+    raise exception 'La hora del aviso ya pasó' using errcode = '22023';
+  end if;
+  if (select count(*) from public.tasks
+      where user_id = new.user_id and remind_at is not null and reminded_at is null and done = false
+        and id <> new.id) >= 200 then
+    raise exception 'Demasiados avisos pendientes (máx. 200)' using errcode = '54000';
+  end if;
+  return new;
+end $$;
+drop trigger if exists tasks_validate_reminder on public.tasks;
+create trigger tasks_validate_reminder before insert or update of remind_at on public.tasks
+  for each row execute function public.tasks_validate_reminder();
+
 -- Solo servicios de push reales (debe coincidir con isPushEndpoint() en api/_lib/push.js).
 create or replace function public.is_push_endpoint(u text) returns boolean
 language sql immutable set search_path = public as $$
-  select coalesce(length(u) < 1024 and u ~ '^https://(fcm\.googleapis\.com|android\.googleapis\.com|updates\.push\.services\.mozilla\.com|[a-z0-9-]+(\.[a-z0-9-]+)*\.push\.apple\.com|[a-z0-9-]+(\.[a-z0-9-]+)*\.notify\.windows\.com)/', false)
+  select coalesce(length(u) < 1024 and u ~ '^https://(fcm\.googleapis\.com|android\.googleapis\.com|jmt17\.google\.com|updates\.push\.services\.mozilla\.com|[a-z0-9-]+(\.[a-z0-9-]+)*\.push\.apple\.com|[a-z0-9-]+(\.[a-z0-9-]+)*\.notify\.windows\.com)/', false)
 $$;
+grant execute on function public.is_push_endpoint(text) to authenticated, service_role;
 
 create table if not exists public.push_subscriptions (
   id uuid primary key default gen_random_uuid(),
@@ -133,9 +164,11 @@ create policy "owner_select" on public.push_subscriptions for select to authenti
 create policy "owner_delete" on public.push_subscriptions for delete to authenticated using (user_id = auth.uid());
 revoke all on public.push_subscriptions from anon, authenticated;
 grant select, delete on public.push_subscriptions to authenticated;
+grant select, update, delete on public.push_subscriptions to service_role;
 
 -- Alta/actualización de la suscripción de este dispositivo. Si el endpoint estaba ligado a otra
 -- cuenta (otro usuario usó este dispositivo), se reasigna: un dispositivo = una cuenta.
+-- p_user_agent: nombre legible del dispositivo (p. ej. "iPad").
 create or replace function public.register_push_subscription(
   p_endpoint text, p_p256dh text, p_auth text, p_user_agent text default null
 ) returns uuid
@@ -165,21 +198,33 @@ revoke all on function public.register_push_subscription(text, text, text, text)
 grant execute on function public.register_push_subscription(text, text, text, text) to authenticated;
 
 -- Reclama avisos vencidos de forma atómica (skip locked: dos crons simultáneos no duplican).
+-- Justo por usuario: máx. 5 por cuenta y ejecución, para que nadie acapare la cola.
+-- Avisos con más de 12 h de retraso (cron caído, tarea desmarcada) se marcan 'expired' sin enviarse.
 -- Solo service_role (servidor); se ejecuta con sus permisos (bypass RLS).
 create or replace function public.claim_due_reminders(max_rows int default 100)
 returns table (task_id uuid, user_id uuid, title text, due_at timestamp, remind_at timestamptz, attempts int)
 language sql security invoker set search_path = public as $$
-  with due as (
-    select id from public.tasks
-    where remind_at <= now() and reminded_at is null and done = false
-    order by remind_at
-    limit greatest(1, least(max_rows, 500))
-    for update skip locked
+  update public.tasks
+     set reminded_at = now(), reminder_status = 'expired'
+   where remind_at < now() - interval '12 hours' and reminded_at is null and done = false;
+
+  with ranked as (
+    select id, remind_at, row_number() over (partition by user_id order by remind_at) as rn
+      from public.tasks
+     where remind_at <= now() and reminded_at is null and done = false
+  ), picked as (
+    select t.id
+      from public.tasks t
+      join ranked r on r.id = t.id
+     where r.rn <= 5 and t.reminded_at is null and t.done = false
+     order by r.remind_at
+     limit greatest(1, least(max_rows, 500))
+       for update of t skip locked
   )
   update public.tasks t
-     set reminded_at = now(), remind_attempts = t.remind_attempts + 1
-    from due
-   where t.id = due.id
+     set reminded_at = now(), remind_attempts = t.remind_attempts + 1, reminder_status = null
+    from picked
+   where t.id = picked.id
   returning t.id, t.user_id, t.title, t.due_at, t.remind_at, t.remind_attempts;
 $$;
 revoke all on function public.claim_due_reminders(int) from public, anon, authenticated;

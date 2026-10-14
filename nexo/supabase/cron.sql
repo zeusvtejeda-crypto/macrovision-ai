@@ -28,7 +28,16 @@ select cron.schedule(
   $$
 );
 
+-- 4) Limpieza diaria del historial de pg_cron (si no, crece ~1 MB/día y llena el plan Free):
+select cron.unschedule(jobid) from cron.job where jobname = 'nexo-cron-cleanup';
+select cron.schedule(
+  'nexo-cron-cleanup',
+  '17 3 * * *',
+  $$ delete from cron.job_run_details where end_time < now() - interval '3 days' $$
+);
+
 -- Verificar:
 --   select * from cron.job_run_details order by start_time desc limit 5;   -- ¿corre el job?
 --   select status_code, content from net._http_response order by created desc limit 5;  -- respuesta de Vercel (200 = ok)
 -- Pausar:  select cron.unschedule('nexo-reminders');
+-- (net._http_response se purga sola cada 6 h.)

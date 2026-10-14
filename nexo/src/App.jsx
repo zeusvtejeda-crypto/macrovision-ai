@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase, configured } from './supabase.js';
 import { mxn, fmtDue, localToday, REMINDER_PRESETS, computeRemindAt, fmtInstant } from './format.js';
-import { pushStatus, enablePush, syncPush, disablePush, forgetDevice, sendTestPush, thisDeviceEndpoint, isIOS } from './push.js';
+import { pushStatus, enablePush, syncPush, disablePush, sendTestPush, thisDeviceEndpoint, isIOS, PUSH_EVENT } from './push.js';
 
 const TABS = [
   ['chat', 'Chat', '💬'],
@@ -116,9 +116,10 @@ function Shell({ session }) {
     return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
   }, []);
 
+  // Cierra sesión solo en este dispositivo y deja de recibir aquí los avisos de la cuenta.
   async function logout() {
-    await forgetDevice(supabase).catch(() => {});
-    await supabase.auth.signOut();
+    await disablePush(supabase).catch(() => {});
+    await supabase.auth.signOut({ scope: 'local' });
   }
 
   return (
@@ -213,7 +214,9 @@ function Tasks() {
     if (!title.trim()) return;
     let remind_at;
     try { remind_at = computeRemindAt(preset, due, custom); } catch (err) { return alert(err.message); }
-    const { error } = await supabase.from('tasks').insert({ title: title.trim(), due_at: due || null, category, remind_at });
+    const row = { title: title.trim(), due_at: due || null, category };
+    if (remind_at) row.remind_at = remind_at;
+    const { error } = await supabase.from('tasks').insert(row);
     if (error) return alert(error.message);
     setTitle(''); setDue(''); setPreset('none'); setCustom('');
   }
@@ -250,7 +253,7 @@ function Tasks() {
               <div>{t.title}</div>
               <div className={`muted small ${!t.done && t.due_at && t.due_at.slice(0, 10) < today ? 'overdue' : ''}`}>
                 {t.category}{t.due_at ? ` · ${fmtDue(t.due_at)}` : ''}
-                {t.remind_at && <span className="bell" title={t.reminded_at ? 'Aviso enviado' : 'Aviso programado'}> · {t.reminded_at ? '🔕' : '🔔'} {fmtInstant(t.remind_at)}</span>}
+                {t.remind_at && <ReminderBadge task={t} />}
               </div>
             </div>
             <button className="icon" onClick={() => remove(t)} aria-label="Eliminar">✕</button>
@@ -390,6 +393,7 @@ function Memory() {
 function PushCard() {
   const [status, setStatus] = useState(pushStatus);
   const [subscribed, setSubscribed] = useState(false);
+  const [thisEndpoint, setThisEndpoint] = useState(null);
   const [devices, setDevices] = useState([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -401,9 +405,16 @@ function PushCard() {
       thisDeviceEndpoint().catch(() => null),
     ]);
     setDevices(data || []);
+    setThisEndpoint(endpoint);
     setSubscribed(Boolean(endpoint && (data || []).some((d) => d.endpoint === endpoint)));
   }, []);
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    refresh();
+    const onVis = () => document.visibilityState === 'visible' && refresh();
+    window.addEventListener(PUSH_EVENT, refresh);
+    document.addEventListener('visibilitychange', onVis);
+    return () => { window.removeEventListener(PUSH_EVENT, refresh); document.removeEventListener('visibilitychange', onVis); };
+  }, [refresh]);
 
   async function run(fn) {
     setBusy(true); setMsg('');
@@ -420,6 +431,7 @@ function PushCard() {
   });
   const disable = () => run(() => disablePush(supabase));
   const removeDevice = (d) => run(async () => {
+    if (d.endpoint === (await thisDeviceEndpoint().catch(() => null))) return disablePush(supabase);
     const { error } = await supabase.from('push_subscriptions').delete().eq('id', d.id);
     if (error) throw error;
   });
@@ -460,7 +472,7 @@ function PushCard() {
           <ul className="devices">
             {devices.map((d) => (
               <li key={d.id} className="small">
-                <span className="grow">{deviceName(d.user_agent)} · desde {new Date(d.created_at).toLocaleDateString('es-MX')}</span>
+                <span className="grow">{deviceName(d.user_agent)} · desde {new Date(d.created_at).toLocaleDateString('es-MX')}{d.endpoint === thisEndpoint ? ' (este)' : ''}</span>
                 <button className="icon" disabled={busy} onClick={() => removeDevice(d)} aria-label="Quitar dispositivo">✕</button>
               </li>
             ))}
@@ -471,7 +483,21 @@ function PushCard() {
   );
 }
 
+// Estado del aviso de una tarea (reminder_status lo escribe el servidor).
+const REMINDER_LABELS = {
+  sent: ['✅', 'Aviso enviado'],
+  no_devices: ['⚠️', 'No se entregó: no había dispositivos con avisos activos'],
+  rejected: ['⚠️', 'No se entregó: el servicio push lo rechazó'],
+  failed: ['⚠️', 'No se entregó: el servicio push falló'],
+  expired: ['⌛', 'No se envió: venció hace más de 12 h'],
+};
+function ReminderBadge({ task }) {
+  const [icon, label] = !task.reminded_at ? ['🔔', 'Aviso programado'] : REMINDER_LABELS[task.reminder_status] || ['⏳', 'Enviando aviso'];
+  return <span className="bell" title={label} aria-label={label}> · {icon} {fmtInstant(task.remind_at)}</span>;
+}
+
 function deviceName(ua = '') {
+  if (!/Mozilla\//.test(ua)) return ua || 'Dispositivo'; // ya es un nombre legible (deviceLabel)
   if (/iPhone/.test(ua)) return 'iPhone';
   if (/iPad/.test(ua) || (/Macintosh/.test(ua) && /Mobile/.test(ua))) return 'iPad';
   if (/Macintosh/.test(ua)) return 'Mac';
