@@ -72,3 +72,14 @@ h2 { margin: 4px 0 12px; }
   .bubble { max-width: 88%; }
   .stats b { font-size: 15px; }
 }
+
+/* Avisos */
+.push { margin-bottom: 12px; display: grid; gap: 6px; }
+.push p { margin: 0; }
+.row.tight { margin: 0; align-items: center; }
+.row.tight > * { flex: 0 0 auto; }
+.row.tight > .grow { flex: 1 1 200px; }
+button.ghost { background: none; border: 1px solid var(--line); color: var(--text); }
+.devices { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 4px; }
+.devices li { display: flex; align-items: center; gap: 6px; }
+.bell { white-space: nowrap; }

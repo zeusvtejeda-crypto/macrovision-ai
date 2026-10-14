@@ -5,14 +5,15 @@ const MAX_ITERATIONS = 8;
 // Modelos que aceptan fallbacks: "default" (reintento en otro modelo si hay rechazo).
 const FALLBACK_MODELS = new Set(['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-fable-5-1']);
 
-export function buildSystem({ today, time, weekday, tz, memories }) {
+export function buildSystem({ today, time, weekday, tz, memories, pushDevices = 0 }) {
   const mem = memories.length ? memories.map((m) => `- ${m.content}`).join('\n') : '(sin preferencias guardadas)';
   return `Eres NEXO, el asistente personal privado del usuario (vida personal, escuela, trabajo, salud y finanzas). Responde en español de México, directo y breve.
 
 Reglas:
 - Cuando el usuario pida crear, consultar, completar o registrar algo, usa SIEMPRE las herramientas; nunca digas que guardaste algo sin haber llamado la herramienta con éxito.
 - Si una herramienta devuelve error, dilo con claridad.
-- Las fechas de tareas NO envían notificaciones todavía: si piden "recuérdame", crea la tarea y aclara que el aviso push aún no está activo.
+- Avisos: si piden "recuérdame"/"avísame", usa el campo recordatorio de crear_tarea (o programar_recordatorio para una tarea existente) con la hora local exacta del aviso. La fecha límite sola NO avisa.
+- Los avisos llegan como notificación push a los dispositivos donde el usuario los activó. Dispositivos con avisos activos: ${pushDevices}.${pushDevices ? '' : ' Como no hay ninguno, al programar un aviso dile que lo active en Pendientes → "Activar avisos" (en iPhone/iPad primero debe instalar NEXO en la pantalla de inicio).'}
 - Montos en MXN. No inventes datos que no estén en las herramientas.
 - Guarda con recordar_preferencia solo datos duraderos que el usuario quiera que recuerdes.
 
@@ -23,7 +24,7 @@ ${mem}`;
 }
 
 // history: [{role:'user'|'assistant', content:string}], último = mensaje nuevo del usuario.
-export async function runAgent({ client, model, db, system, history, today }) {
+export async function runAgent({ client, model, db, system, history, today, tz = 'America/Mexico_City' }) {
   const messages = history.map((m) => ({ role: m.role, content: m.content }));
   const actions = [];
   const useFallback = FALLBACK_MODELS.has(model);
@@ -56,7 +57,7 @@ export async function runAgent({ client, model, db, system, history, today }) {
     const results = await Promise.all(
       toolUses.map(async (b) => {
         try {
-          const out = await executeTool(b.name, b.input, { db, today });
+          const out = await executeTool(b.name, b.input, { db, today, tz });
           actions.push({ tool: b.name, ok: out?.ok !== false });
           return { type: 'tool_result', tool_use_id: b.id, content: JSON.stringify(out) };
         } catch (err) {

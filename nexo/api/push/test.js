@@ -1,0 +1,22 @@
+// POST /api/push/test — envía una notificación de prueba a los dispositivos del usuario.
+import { userClient } from '../_lib/supabase.js';
+import { sendToSubscriptions, vapidFromEnv } from '../_lib/push.js';
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
+  const vapid = vapidFromEnv();
+  if (!vapid) return res.status(500).json({ error: 'Servidor sin claves VAPID.' });
+  const auth = await userClient(req);
+  if (auth.error) return res.status(auth.status).json({ error: auth.error });
+  const { db } = auth;
+
+  const { data: subs, error } = await db.from('push_subscriptions').select('id,endpoint,p256dh,auth');
+  if (error) return res.status(500).json({ error: 'No se pudieron leer tus dispositivos.' });
+  if (!subs.length) return res.status(409).json({ error: 'No hay dispositivos con avisos activos.' });
+
+  const r = await sendToSubscriptions(subs, {
+    title: '✅ NEXO', body: 'Las notificaciones funcionan en este dispositivo.', tag: 'nexo-test', url: '/?tab=tasks',
+  }, { vapid, ttl: 600 });
+  if (r.gone.length) await db.from('push_subscriptions').delete().in('id', r.gone);
+  return res.status(200).json({ total: subs.length, delivered: r.delivered.length, removed: r.gone.length, failed: r.failed.length + r.invalid.length });
+}

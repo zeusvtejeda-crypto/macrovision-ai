@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase, configured } from './supabase.js';
-import { mxn, fmtDue, localToday } from './format.js';
+import { mxn, fmtDue, localToday, REMINDER_PRESETS, computeRemindAt, fmtInstant } from './format.js';
+import { pushStatus, enablePush, syncPush, disablePush, forgetDevice, sendTestPush, thisDeviceEndpoint, isIOS } from './push.js';
 
 const TABS = [
   ['chat', 'Chat', '💬'],
@@ -90,9 +91,35 @@ function useTable(table, query, deps = []) {
   return [rows, load];
 }
 
+// ?tab=tasks (al abrir desde una notificación) o la última pestaña usada.
+function initialTab() {
+  const params = new URLSearchParams(location.search);
+  const t = params.get('tab');
+  if (t) history.replaceState(null, '', location.pathname);
+  if (TABS.some(([id]) => id === t)) return t;
+  try { return localStorage.getItem('nexo-tab') || 'chat'; } catch { return 'chat'; }
+}
+
 function Shell({ session }) {
-  const [tab, setTab] = useState(() => localStorage.getItem('nexo-tab') || 'chat');
+  const [tab, setTab] = useState(initialTab);
   useEffect(() => { try { localStorage.setItem('nexo-tab', tab); } catch {} }, [tab]);
+
+  useEffect(() => {
+    syncPush(supabase);
+    // Toque en una notificación con la app abierta → el service worker pide cambiar de pestaña.
+    const onMsg = (e) => {
+      if (e.data?.type !== 'nexo:open') return;
+      const t = new URL(e.data.url, location.origin).searchParams.get('tab');
+      if (TABS.some(([id]) => id === t)) setTab(t);
+    };
+    navigator.serviceWorker?.addEventListener('message', onMsg);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
+  }, []);
+
+  async function logout() {
+    await forgetDevice(supabase).catch(() => {});
+    await supabase.auth.signOut();
+  }
 
   return (
     <div className="shell">
@@ -103,7 +130,7 @@ function Shell({ session }) {
             <span className="ico">{icon}</span><span className="lbl">{label}</span>
           </button>
         ))}
-        <button className="logout" onClick={() => supabase.auth.signOut()} title={session.user.email}>
+        <button className="logout" onClick={logout} title={session.user.email}>
           <span className="ico">⎋</span><span className="lbl">Salir</span>
         </button>
       </nav>
@@ -178,13 +205,17 @@ function Tasks() {
   const [title, setTitle] = useState('');
   const [due, setDue] = useState('');
   const [category, setCategory] = useState('personal');
+  const [preset, setPreset] = useState('none');
+  const [custom, setCustom] = useState('');
 
   async function add(e) {
     e.preventDefault();
     if (!title.trim()) return;
-    const { error } = await supabase.from('tasks').insert({ title: title.trim(), due_at: due || null, category });
+    let remind_at;
+    try { remind_at = computeRemindAt(preset, due, custom); } catch (err) { return alert(err.message); }
+    const { error } = await supabase.from('tasks').insert({ title: title.trim(), due_at: due || null, category, remind_at });
     if (error) return alert(error.message);
-    setTitle(''); setDue('');
+    setTitle(''); setDue(''); setPreset('none'); setCustom('');
   }
   const toggle = (t) => exec(supabase.from('tasks').update({ done: !t.done, done_at: t.done ? null : new Date().toISOString() }).eq('id', t.id));
   const remove = (t) => confirm(`¿Eliminar “${t.title}”?`) && exec(supabase.from('tasks').delete().eq('id', t.id));
@@ -194,12 +225,17 @@ function Tasks() {
   return (
     <section>
       <h2>Pendientes</h2>
+      <PushCard />
       <form className="card row" onSubmit={add}>
         <input placeholder="Nueva tarea" value={title} onChange={(e) => setTitle(e.target.value)} />
         <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} />
         <select value={category} onChange={(e) => setCategory(e.target.value)}>
           {['personal', 'escuela', 'trabajo', 'salud', 'finanzas', 'otro'].map((c) => <option key={c}>{c}</option>)}
         </select>
+        <select value={preset} onChange={(e) => setPreset(e.target.value)} aria-label="Aviso">
+          {REMINDER_PRESETS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        {preset === 'custom' && <input type="datetime-local" aria-label="Hora del aviso" value={custom} onChange={(e) => setCustom(e.target.value)} />}
         <button>Agregar</button>
       </form>
       <div className="seg">
@@ -214,6 +250,7 @@ function Tasks() {
               <div>{t.title}</div>
               <div className={`muted small ${!t.done && t.due_at && t.due_at.slice(0, 10) < today ? 'overdue' : ''}`}>
                 {t.category}{t.due_at ? ` · ${fmtDue(t.due_at)}` : ''}
+                {t.remind_at && <span className="bell" title={t.reminded_at ? 'Aviso enviado' : 'Aviso programado'}> · {t.reminded_at ? '🔕' : '🔔'} {fmtInstant(t.remind_at)}</span>}
               </div>
             </div>
             <button className="icon" onClick={() => remove(t)} aria-label="Eliminar">✕</button>
@@ -347,4 +384,98 @@ function Memory() {
       </ul>
     </section>
   );
+}
+
+// Estado y control de notificaciones de este dispositivo.
+function PushCard() {
+  const [status, setStatus] = useState(pushStatus);
+  const [subscribed, setSubscribed] = useState(false);
+  const [devices, setDevices] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const refresh = useCallback(async () => {
+    setStatus(pushStatus());
+    const [{ data }, endpoint] = await Promise.all([
+      supabase.from('push_subscriptions').select('id,endpoint,user_agent,created_at').order('created_at', { ascending: false }),
+      thisDeviceEndpoint().catch(() => null),
+    ]);
+    setDevices(data || []);
+    setSubscribed(Boolean(endpoint && (data || []).some((d) => d.endpoint === endpoint)));
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function run(fn) {
+    setBusy(true); setMsg('');
+    try { await fn(); } catch (err) { setMsg(err.message); } finally { setBusy(false); refresh(); }
+  }
+  const enable = () => run(async () => {
+    const r = await enablePush(supabase);
+    if (r === 'denied') setMsg('Permiso denegado. Actívalo en Ajustes del sistema → Notificaciones → NEXO.');
+    else if (r === 'granted') setMsg('Avisos activados en este dispositivo.');
+  });
+  const test = () => run(async () => {
+    const r = await sendTestPush(supabase);
+    setMsg(`Prueba enviada a ${r.delivered} de ${r.total} dispositivo(s).`);
+  });
+  const disable = () => run(() => disablePush(supabase));
+  const removeDevice = (d) => run(async () => {
+    const { error } = await supabase.from('push_subscriptions').delete().eq('id', d.id);
+    if (error) throw error;
+  });
+
+  let body;
+  if (status === 'needs-install') {
+    body = <p>Para recibir avisos en {isIOS() ? 'iPhone/iPad' : 'este dispositivo'}: Safari → Compartir → <b>Añadir a pantalla de inicio</b>, abre NEXO desde el icono y activa los avisos aquí.</p>;
+  } else if (status === 'unsupported') {
+    body = <p>Este navegador no admite notificaciones push.</p>;
+  } else if (status === 'missing-key') {
+    body = <p>El servidor no tiene configurada la clave VAPID (<code>VITE_VAPID_PUBLIC_KEY</code>).</p>;
+  } else if (status === 'denied') {
+    body = <p>Las notificaciones están bloqueadas. Actívalas en Ajustes → Notificaciones → NEXO{isIOS() ? '' : ' (o en los permisos del sitio)'} y vuelve a abrir la app.</p>;
+  } else if (status === 'granted' && subscribed) {
+    body = (
+      <div className="row tight">
+        <span className="grow">🔔 Avisos activos en este dispositivo</span>
+        <button disabled={busy} onClick={test}>Probar</button>
+        <button disabled={busy} className="ghost" onClick={disable}>Desactivar</button>
+      </div>
+    );
+  } else {
+    body = (
+      <div className="row tight">
+        <span className="grow">Recibe un aviso a la hora que elijas, aunque NEXO esté cerrado.</span>
+        <button disabled={busy} onClick={enable}>Activar avisos</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card push">
+      {body}
+      {msg && <p className="muted small">{msg}</p>}
+      {devices.length > 0 && (
+        <details>
+          <summary className="muted small">{devices.length} dispositivo(s) con avisos</summary>
+          <ul className="devices">
+            {devices.map((d) => (
+              <li key={d.id} className="small">
+                <span className="grow">{deviceName(d.user_agent)} · desde {new Date(d.created_at).toLocaleDateString('es-MX')}</span>
+                <button className="icon" disabled={busy} onClick={() => removeDevice(d)} aria-label="Quitar dispositivo">✕</button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function deviceName(ua = '') {
+  if (/iPhone/.test(ua)) return 'iPhone';
+  if (/iPad/.test(ua) || (/Macintosh/.test(ua) && /Mobile/.test(ua))) return 'iPad';
+  if (/Macintosh/.test(ua)) return 'Mac';
+  if (/Android/.test(ua)) return 'Android';
+  if (/Windows/.test(ua)) return 'Windows';
+  return 'Navegador';
 }

@@ -1,3 +1,5 @@
+import { zonedToUtc, formatInZone } from './time.js';
+
 // Herramientas que Claude puede ejecutar. `db` es un cliente Supabase autenticado
 // con el token del usuario: la RLS garantiza que solo toca sus propios registros.
 
@@ -12,8 +14,25 @@ export const TOOLS = [
         fecha_limite: { type: 'string', description: 'ISO 8601, opcional' },
         categoria: { type: 'string', enum: ['personal', 'escuela', 'trabajo', 'salud', 'finanzas', 'otro'] },
         notas: { type: 'string' },
+        recordatorio: {
+          type: 'string',
+          description: 'Hora local exacta del aviso push (YYYY-MM-DDTHH:mm). Úsalo solo si el usuario pide que le recuerdes/avises. Solo fecha = 09:00.',
+        },
       },
       required: ['titulo'],
+    },
+  },
+  {
+    name: 'programar_recordatorio',
+    description: 'Programa, cambia o cancela el aviso push de una tarea existente (obtén el id con listar_tareas).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        cuando: { type: 'string', description: 'Hora local del aviso (YYYY-MM-DDTHH:mm)' },
+        cancelar: { type: 'boolean', description: 'true para quitar el aviso' },
+      },
+      required: ['id'],
     },
   },
   {
@@ -81,6 +100,7 @@ export const TOOLS = [
 const CATEGORIAS = new Set(['personal', 'escuela', 'trabajo', 'salud', 'finanzas', 'otro']);
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/;
+const PAST_SLACK_MS = 2 * 60 * 1000;
 
 class ToolInputError extends Error {}
 
@@ -107,8 +127,25 @@ async function run(q) {
   return data;
 }
 
-// ctx: { db, today } — today = 'YYYY-MM-DD' en la zona del usuario
-export async function executeTool(name, input, { db, today }) {
+// Hora local del aviso → instante UTC (ISO). Rechaza fechas inválidas o pasadas.
+function reminderAt(v, tz, now) {
+  const s = date(v, 'recordatorio', ISO_DATETIME);
+  if (!s) return null;
+  const at = zonedToUtc(s, tz);
+  if (!at) throw new ToolInputError('"recordatorio" no es una fecha válida');
+  if (at.getTime() < now.getTime() - PAST_SLACK_MS) throw new ToolInputError(`La hora del aviso (${s}) ya pasó`);
+  return at.toISOString();
+}
+
+const TASK_FIELDS = 'id,title,due_at,category,done,notes,remind_at,reminded_at';
+function taskOut(t, tz) {
+  if (!t) return t;
+  const { remind_at, reminded_at, ...rest } = t;
+  return { ...rest, aviso: remind_at ? formatInZone(remind_at, tz) : null, aviso_enviado: Boolean(reminded_at) };
+}
+
+// ctx: { db, today, tz, now } — today = 'YYYY-MM-DD' en la zona del usuario
+export async function executeTool(name, input, { db, today, tz = 'America/Mexico_City', now = new Date() }) {
   input = input && typeof input === 'object' ? input : {};
   switch (name) {
     case 'crear_tarea': {
@@ -118,13 +155,22 @@ export async function executeTool(name, input, { db, today }) {
         due_at: date(input.fecha_limite, 'fecha_limite', ISO_DATETIME),
         category: CATEGORIAS.has(categoria) ? categoria : 'otro',
         notes: str(input.notas, 'notas'),
+        remind_at: reminderAt(input.recordatorio, tz, now),
       };
-      const t = await run(db.from('tasks').insert(row).select().single());
-      return { ok: true, tarea: t };
+      const t = await run(db.from('tasks').insert(row).select(TASK_FIELDS).single());
+      return { ok: true, tarea: taskOut(t, tz) };
+    }
+    case 'programar_recordatorio': {
+      const id = str(input.id, 'id', { required: true, max: 64 });
+      const remind_at = input.cancelar === true ? null : reminderAt(input.cuando, tz, now);
+      if (input.cancelar !== true && !remind_at) throw new ToolInputError('Falta "cuando" (o usa cancelar: true)');
+      const rows = await run(db.from('tasks').update({ remind_at }).eq('id', id).select(TASK_FIELDS));
+      if (!rows.length) return { ok: false, error: 'Tarea no encontrada' };
+      return { ok: true, tarea: taskOut(rows[0], tz) };
     }
     case 'listar_tareas': {
       const estado = input.estado || 'pendientes';
-      let q = db.from('tasks').select('id,title,due_at,category,done,notes');
+      let q = db.from('tasks').select(TASK_FIELDS);
       if (estado === 'pendientes') q = q.eq('done', false);
       if (estado === 'completadas') q = q.eq('done', true);
       const desde = date(input.desde, 'desde', ISO_DATETIME);
@@ -132,13 +178,13 @@ export async function executeTool(name, input, { db, today }) {
       if (desde) q = q.gte('due_at', desde);
       if (hasta) q = q.lte('due_at', hasta.length === 10 ? `${hasta}T23:59:59` : hasta);
       const rows = await run(q.order('due_at', { ascending: true, nullsFirst: false }).limit(50));
-      return { total: rows.length, tareas: rows };
+      return { total: rows.length, tareas: rows.map((t) => taskOut(t, tz)) };
     }
     case 'completar_tarea': {
       const id = str(input.id, 'id', { required: true, max: 64 });
-      const rows = await run(db.from('tasks').update({ done: true, done_at: new Date().toISOString() }).eq('id', id).select());
+      const rows = await run(db.from('tasks').update({ done: true, done_at: now.toISOString() }).eq('id', id).select(TASK_FIELDS));
       if (!rows.length) return { ok: false, error: 'Tarea no encontrada' };
-      return { ok: true, tarea: rows[0] };
+      return { ok: true, tarea: taskOut(rows[0], tz) };
     }
     case 'guardar_nota': {
       const tags = Array.isArray(input.etiquetas) ? input.etiquetas.filter((t) => typeof t === 'string').slice(0, 10) : [];

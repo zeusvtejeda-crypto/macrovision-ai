@@ -74,3 +74,46 @@ describe('herramientas del agente', () => {
       .toMatchObject({ gastos: 15.1, por_categoria: { a: { gastos: 15.1, ingresos: 0 } } });
   });
 });
+
+describe('recordatorios en herramientas', () => {
+  const now = new Date('2026-10-14T15:00:00Z'); // 09:00 en CDMX
+  const ctx = (db) => ({ db, today, tz: 'America/Mexico_City', now });
+
+  it('crear_tarea con recordatorio guarda el instante UTC correcto', async () => {
+    const store = {};
+    const r = await executeTool('crear_tarea', { titulo: 'Pagar luz', recordatorio: '2026-10-14T17:00' }, ctx(fakeDb(store)));
+    expect(store.tasks[0].remind_at).toBe('2026-10-14T23:00:00.000Z');
+    expect(r.tarea.aviso).toBe('2026-10-14T17:00');
+    expect(r.tarea.aviso_enviado).toBe(false);
+  });
+
+  it('rechaza avisos en el pasado o inválidos', async () => {
+    const db = fakeDb({});
+    await expect(executeTool('crear_tarea', { titulo: 'x', recordatorio: '2026-10-14T08:00' }, ctx(db))).rejects.toThrow('ya pasó');
+    await expect(executeTool('crear_tarea', { titulo: 'x', recordatorio: '2026-02-30T10:00' }, ctx(db))).rejects.toThrow('no es una fecha válida');
+  });
+
+  it('programar_recordatorio programa, cambia y cancela; respeta RLS', async () => {
+    const store = {};
+    const { tarea } = await executeTool('crear_tarea', { titulo: 'Gym' }, ctx(fakeDb(store, 'A')));
+    const r = await executeTool('programar_recordatorio', { id: tarea.id, cuando: '2026-10-14T17:30' }, ctx(fakeDb(store, 'A')));
+    expect(r.ok).toBe(true);
+    expect(store.tasks[0].remind_at).toBe('2026-10-14T23:30:00.000Z');
+
+    const other = await executeTool('programar_recordatorio', { id: tarea.id, cancelar: true }, ctx(fakeDb(store, 'B')));
+    expect(other.ok).toBe(false);
+    expect(store.tasks[0].remind_at).toBe('2026-10-14T23:30:00.000Z');
+
+    await executeTool('programar_recordatorio', { id: tarea.id, cancelar: true }, ctx(fakeDb(store, 'A')));
+    expect(store.tasks[0].remind_at).toBeNull();
+    await expect(executeTool('programar_recordatorio', { id: tarea.id }, ctx(fakeDb(store, 'A')))).rejects.toThrow('cuando');
+  });
+
+  it('listar_tareas muestra el aviso en hora local', async () => {
+    const store = {};
+    await executeTool('crear_tarea', { titulo: 'Cita', recordatorio: '2026-10-20T08:15' }, ctx(fakeDb(store)));
+    const l = await executeTool('listar_tareas', {}, ctx(fakeDb(store)));
+    expect(l.tareas[0]).toMatchObject({ aviso: '2026-10-20T08:15', aviso_enviado: false });
+    expect(l.tareas[0]).not.toHaveProperty('remind_at');
+  });
+});

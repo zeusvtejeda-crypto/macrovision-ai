@@ -1,6 +1,6 @@
 // Vercel Serverless Function: POST /api/chat
 // Requiere: Authorization: Bearer <access_token de Supabase>, body { message, timeZone }
-import { createClient } from '@supabase/supabase-js';
+import { userClient, parseBody } from './_lib/supabase.js';
 import { buildSystem, runAgent, makeClient, Anthropic } from './_lib/agent.js';
 import { localNow, safeTimeZone } from './_lib/time.js';
 
@@ -9,29 +9,23 @@ const HISTORY_LIMIT = 20;
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
 
-  const { VITE_SUPABASE_URL: url, VITE_SUPABASE_ANON_KEY: anon, ANTHROPIC_API_KEY, ANTHROPIC_MODEL } = process.env;
-  if (!url || !anon || !ANTHROPIC_API_KEY) return res.status(500).json({ error: 'Servidor sin configurar (variables de entorno).' });
+  const { ANTHROPIC_API_KEY, ANTHROPIC_MODEL } = process.env;
+  if (!ANTHROPIC_API_KEY) return res.status(500).json({ error: 'Servidor sin configurar (variables de entorno).' });
 
-  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  if (!token) return res.status(401).json({ error: 'Inicia sesión.' });
-
-  const body = typeof req.body === 'string' ? safeJson(req.body) : req.body || {};
+  const body = parseBody(req);
   const message = typeof body.message === 'string' ? body.message.trim().slice(0, 4000) : '';
   if (!message) return res.status(400).json({ error: 'Mensaje vacío.' });
   const tz = safeTimeZone(body.timeZone);
 
-  // Cliente con el JWT del usuario: toda consulta pasa por RLS.
-  const db = createClient(url, anon, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: userData, error: authError } = await db.auth.getUser(token);
-  if (authError || !userData?.user) return res.status(401).json({ error: 'Sesión inválida o expirada.' });
+  const auth = await userClient(req);
+  if (auth.error) return res.status(auth.status).json({ error: auth.error });
+  const { db } = auth;
 
   try {
-    const [{ data: memories = [] }, { data: past = [] }] = await Promise.all([
+    const [{ data: memories = [] }, { data: past = [] }, { count: pushDevices }] = await Promise.all([
       db.from('memories').select('content').order('created_at', { ascending: true }).limit(50),
       db.from('chat_messages').select('role,content').order('created_at', { ascending: false }).limit(HISTORY_LIMIT),
+      db.from('push_subscriptions').select('id', { count: 'exact', head: true }),
     ]);
 
     const { error: insErr } = await db.from('chat_messages').insert({ role: 'user', content: message });
@@ -43,9 +37,10 @@ export default async function handler(req, res) {
       client: makeClient(),
       model: ANTHROPIC_MODEL || 'claude-sonnet-5-5',
       db,
-      system: buildSystem({ ...now, tz, memories: memories || [] }),
+      system: buildSystem({ ...now, tz, memories: memories || [], pushDevices: pushDevices || 0 }),
       history,
       today: now.today,
+      tz,
     });
 
     await db.from('chat_messages').insert({ role: 'assistant', content: text });
@@ -69,8 +64,4 @@ export function trimHistory(list) {
     else out.push({ role: m.role, content: m.content });
   }
   return out;
-}
-
-function safeJson(s) {
-  try { return JSON.parse(s); } catch { return {}; }
 }
