@@ -600,25 +600,29 @@ function SiriCard() {
         <summary><b>Cómo crear el atajo “NEXO”</b> (iPhone, iPad o Mac)</summary>
         <ol>
           <li>Abre la app <b>Atajos</b> → <b>+</b> (nuevo atajo) y llámalo <b>NEXO</b>.</li>
-          <li>Agrega la acción <b>Dictar texto</b> (idioma: Español; dejar de escuchar: tras una pausa).</li>
-          <li>Agrega <b>Obtener contenido de URL</b> y pega la URL:
+          <li>Agrega la acción <b>Dictar texto</b>. Idioma: Español (México); Dejar de escuchar: <i>Después de la pausa</i>.
+            Requiere el Dictado activado (Configuración → General → Teclado → Dictado).</li>
+          <li>Agrega <b>Obtener contenido de URL</b> y pon esta URL:
             <CopyField label="URL" value={endpoint} />
-            Toca la flecha / <b>Mostrar más</b>:
+            Toca <b>Mostrar más</b>:
             <ul>
               <li><b>Método</b>: POST</li>
-              <li><b>Encabezados</b> → Agregar: clave <code>Authorization</code>, valor:
+              <li><b>Encabezados</b> → nuevo encabezado: Clave <code>Authorization</code>, Valor:
                 <CopyField label="Valor del encabezado" value={header} />
               </li>
-              <li><b>Cuerpo de la solicitud</b>: JSON → Agregar campo → Texto: clave <code>texto</code>, valor: la variable <b>Texto dictado</b>.</li>
+              <li><b>Solicitar cuerpo</b> (así se llama en español de México; en España, <i>Cuerpo de la solicitud</i>): <b>JSON</b> →
+                nuevo campo → <b>Texto</b>: Clave <code>texto</code>, Valor: toca <b>Seleccionar variable</b> y elige <b>Texto dictado</b>.</li>
             </ul>
           </li>
-          <li>Agrega <b>Leer texto</b> (para que Siri responda en voz alta) o <b>Mostrar resultado</b>, con <b>Contenido de URL</b>.</li>
-          <li>Listo: di <b>“Oye Siri, NEXO”</b>. En iPhone 15 Pro o posterior también puedes ponerlo en Ajustes → <b>Botón de acción</b> → Atajo.</li>
+          <li>Agrega <b>Leer texto</b> (Siri responde en voz alta) o <b>Mostrar contenido</b> (en iOS 18: <i>Mostrar resultado</i>), con <b>Contenido de URL</b>.</li>
+          <li>Ejecútalo una vez con el iPhone desbloqueado y permite la conexión (<b>Permitir siempre</b>). Para usarlo bloqueado: Detalles del atajo → Privacidad → <b>Permitir ejecución en dispositivo bloqueado</b>.</li>
+          <li>Listo: di <b>“Oye Siri, NEXO”</b>. También puedes ponerlo en Configuración → <b>Botón de acción</b> → Atajo (iPhone 15 Pro y posteriores) o como control en el Centro de control.</li>
         </ol>
         <p className="muted small">
-          Atajos rápidos sin Claude (más rápidos y gratis): agrega al cuerpo JSON otro campo de texto <code>accion</code> con valor
-          <code>nota</code> (guarda lo dictado como nota) o <code>tarea</code> (lo agrega a Pendientes). Los atajos se sincronizan por iCloud
-          entre tu iPhone, iPad y Mac.
+          <b>Sin Claude (más rápido y gratis):</b> agrega al JSON otro campo de texto <code>accion</code> = <code>nota</code> (guarda lo dictado como nota)
+          o <code>tarea</code> (lo agrega a Pendientes). <b>Desde otras apps:</b> en Detalles activa <i>Mostrar en la hoja de compartir</i> y usa
+          <i>Entrada de atajo</i> en lugar de <i>Texto dictado</i>. <b>En Mac</b> el atajo llega por iCloud: Detalles → <i>Fijar en la barra de menús</i>
+          o <i>Agregar función rápida de teclado</i>. Si Claude tarda más de ~20 s, Siri te avisa y la respuesta queda en el Chat.
         </p>
       </details>
     </section>

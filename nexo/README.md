@@ -81,15 +81,17 @@ Detalles:
 NEXO → **Ajustes** → *Siri y Atajos* → **Crear token** (uno por dispositivo; se muestra **una sola vez**, guárdalo como una contraseña) y sigue las instrucciones de esa pantalla, que ya traen tu URL y tu token para copiar. Resumen:
 
 1. App **Atajos** → **+** → nombre **NEXO**.
-2. **Dictar texto**.
-3. **Obtener contenido de URL** → `https://<tu dominio>/api/shortcut` · Método **POST** · Encabezado `Authorization: Bearer nexo_…` · Cuerpo **JSON** con campo `texto` = *Texto dictado*.
-4. **Leer texto** (respuesta hablada) o **Mostrar resultado**.
-5. “**Oye Siri, NEXO**”, o Botón de acción (iPhone 15 Pro o posterior). En Mac el mismo atajo llega por iCloud.
+2. **Dictar texto** (Idioma: Español (México); Dejar de escuchar: Después de la pausa). Requiere Dictado activado.
+3. **Obtener contenido de URL** → `https://<tu dominio>/api/shortcut` → **Mostrar más**: Método **POST** · **Encabezados**: `Authorization` = `Bearer nexo_…` · **Solicitar cuerpo** (es-ES: *Cuerpo de la solicitud*) **JSON** → campo de Texto `texto` = variable *Texto dictado*.
+4. **Leer texto** (es-ES: *Leer texto con voz*) o **Mostrar contenido** (iOS 18: *Mostrar resultado*) con *Contenido de URL*.
+5. Ejecútalo una vez desbloqueado y elige **Permitir siempre**. Para usarlo con el iPhone bloqueado: Detalles → Privacidad → **Permitir ejecución en dispositivo bloqueado**.
+6. “**Oye Siri, NEXO**”, Botón de acción (iPhone 15 Pro y posteriores: Configuración → Botón de acción → Atajo) o control del Centro de control. En Mac llega por iCloud: Detalles → *Fijar en la barra de menús* o *Agregar función rápida de teclado*.
 
-Variantes sin Claude (rápidas y sin costo): agrega al JSON `accion` = `nota` (guarda lo dictado como nota) o `tarea` (lo agrega a Pendientes).
+Variantes sin Claude (rápidas y sin costo): agrega al JSON `accion` = `nota` (guarda lo dictado como nota) o `tarea` (lo agrega a Pendientes). Para usarlo desde otras apps: Detalles → *Mostrar en la hoja de compartir* y usa *Entrada de atajo* en vez de *Texto dictado*.
 
 Detalles:
-- Lo que dices por Siri aparece también en el Chat de NEXO.
+- Lo que dices por Siri aparece también en el Chat de NEXO. Si Claude tarda más de ~20 s (Atajos corta la conexión en un tiempo no documentado, ~25 s), Siri te avisa y la respuesta completa queda en el Chat.
+- El token vive dentro del atajo: no compartas ese atajo por enlace de iCloud (quien lo abra vería el token). Si lo hiciste, revócalo.
 - Arquitectura: Atajos → `/api/shortcut` (token personal) → mismo agente que el chat, con respuestas cortas para voz.
 - Límites por token: 20 solicitudes/minuto y 300/día. Revoca un token en Ajustes si pierdes el dispositivo.
 - El token solo da acceso a **tu** cuenta: el servidor lo verifica por su huella (SHA-256) y filtra cada consulta por tu usuario.
@@ -100,7 +102,7 @@ Detalles:
 cp .env.example .env.local   # llena tus claves
 npm install
 npx vercel dev               # UI + /api/chat (npm run dev solo sirve la UI)
-npm test                     # 91 tests (vitest): herramientas, agente, endpoints, zona horaria/DST, push (servidor y cliente)
+npm test                     # 93 tests (vitest): herramientas, agente, endpoints, zona horaria/DST, push (servidor y cliente)
 npm run test:sql             # RLS, avisos y suscripciones contra Postgres local (si tienes PostgreSQL)
 npm run build
 # Prueba de humo en Chromium (service worker → notificación) — requiere Playwright:

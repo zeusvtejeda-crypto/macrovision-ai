@@ -8,15 +8,23 @@ import { bearerToken, hashToken, scopedClient } from './_lib/tokens.js';
 import { converse, claudeError } from './_lib/converse.js';
 import { executeTool, ToolInputError } from './_lib/tools.js';
 import { localNow, safeTimeZone } from './_lib/time.js';
+import { waitUntil } from '@vercel/functions';
 
 export const PER_MINUTE = 20;
 export const PER_DAY = 300;
+// Atajos corta "Obtener contenido de URL" tras un tiempo no documentado (~25 s según usuarios):
+// si Claude tarda más, se responde antes y la respuesta completa queda en el chat de NEXO.
+export const SIRI_DEADLINE_MS = 20000;
+export const LATE_REPLY = 'Me está tomando más tiempo de lo normal. Te dejo la respuesta en el chat de NEXO.';
 
+// Vercel da objeto (JSON/formulario), string (text/plain) o Buffer (sin Content-Type o binario).
 function readBody(req) {
-  if (req.body && typeof req.body === 'object') return req.body;
-  if (typeof req.body === 'string') {
-    try { const j = JSON.parse(req.body); if (j && typeof j === 'object') return j; } catch {}
-    return { texto: req.body };
+  let b = req.body;
+  if (Buffer.isBuffer(b)) b = b.toString('utf8');
+  if (b && typeof b === 'object') return b;
+  if (typeof b === 'string') {
+    try { const j = JSON.parse(b); if (j && typeof j === 'object') return j; } catch {}
+    return { texto: b };
   }
   return {};
 }
@@ -71,8 +79,19 @@ export default async function handler(req, res, deps = {}) {
       return reply(200, `Listo, agregué «${text.slice(0, 80)}» a tus pendientes.`, { accion });
     }
     if (!process.env.ANTHROPIC_API_KEY && !deps.client) return reply(500, 'Falta la API key de Claude en el servidor.');
-    const { text: answer, actions } = await converse({ db, message: text, tz, channel: 'siri', ...(deps.client ? { client: deps.client } : {}) });
-    return reply(200, toSpeech(answer) || 'Listo.', { accion, actions });
+    const work = converse({ db, message: text, tz, channel: 'siri', ...(deps.client ? { client: deps.client } : {}) })
+      .then((r) => ({ r }), (e) => ({ e }));
+    let timer;
+    const late = new Promise((resolve) => { timer = setTimeout(() => resolve({ late: true }), deps.deadlineMs ?? SIRI_DEADLINE_MS); });
+    const out = await Promise.race([work, late]);
+    clearTimeout(timer);
+    if (out.late) {
+      // La función sigue viva hasta terminar y guardar la respuesta en el chat.
+      (deps.waitUntil || waitUntil)(work.then((o) => { if (o.e) console.error('shortcut tardío', o.e?.status || '', o.e?.message); }));
+      return reply(200, LATE_REPLY, { accion, pendiente: true });
+    }
+    if (out.e) throw out.e;
+    return reply(200, toSpeech(out.r.text) || 'Listo.', { accion, actions: out.r.actions });
   } catch (err) {
     if (err instanceof ToolInputError) return reply(400, err.message);
     console.error('shortcut error', err?.status || '', err?.message);

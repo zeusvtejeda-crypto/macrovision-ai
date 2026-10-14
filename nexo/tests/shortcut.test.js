@@ -146,6 +146,27 @@ describe('/api/shortcut', () => {
     expect(st.chat_messages.map((m) => [m.user_id, m.role])).toEqual([['A', 'user'], ['A', 'assistant']]);
   });
 
+  it('si Claude tarda más que el límite de Atajos, responde ya y termina en segundo plano', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const client = { messages: { create: async () => { await gate; return { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Respuesta tardía' }] }; } } };
+    client.beta = { messages: client.messages };
+    const pending = [];
+    const r = await call({ body: { texto: 'Planea mi semana' } }, { client, deadlineMs: 20, waitUntil: (p) => pending.push(p) });
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toMatch(/chat de NEXO/);
+    expect(pending).toHaveLength(1);
+    release();
+    await pending[0];
+    expect(st.chat_messages.map((m) => m.content)).toEqual(['Planea mi semana', 'Respuesta tardía']);
+  });
+
+  it('acepta el cuerpo como Buffer (sin Content-Type)', async () => {
+    const r = await call({ body: Buffer.from(JSON.stringify({ texto: 'Leche', accion: 'tarea' })) });
+    expect(r.statusCode).toBe(200);
+    expect(st.tasks[0].title).toBe('Leche');
+  });
+
   it('toSpeech limpia markdown, viñetas y URLs', () => {
     expect(toSpeech('# Hola\n- uno\n- **dos** https://a.b/c `x`')).toBe('Hola uno dos x');
   });
