@@ -144,7 +144,7 @@ const REMINDER_STATES = {
   rejected: 'no entregado: el servicio push lo rechazó',
   failed: 'no entregado: el servicio push falló',
   expired: 'no enviado: venció hace más de 12 h',
-  missed: 'no enviado: la tarea estaba completada a la hora del aviso',
+  missed: 'no enviado: la tarea se reabrió cuando la hora del aviso ya había pasado',
   unknown: 'desconocido: pudo no haber llegado',
 };
 function taskOut(t, tz) {

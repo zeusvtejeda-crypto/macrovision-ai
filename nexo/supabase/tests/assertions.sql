@@ -206,11 +206,20 @@ select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
 select count(*) from (select public.register_push_subscription('https://fcm.googleapis.com/fcm/send/a-mac', :P256, :AUTH, 'Mac')) x \g /dev/null
 select pg_temp.check((select gone_at is null from push_subscriptions where endpoint like '%a-mac'), 're-registrar limpia gone_at');
 reset role;
-update push_subscriptions set gone_at = now() - interval '31 days' where endpoint like '%a-mac';
-set role service_role;
-select count(*) from public.claim_due_reminders(1) \g /dev/null
+-- Límite de 10: las caducadas ceden su lugar antes que las activas
+delete from push_subscriptions where user_id = :A::uuid;
+insert into push_subscriptions (user_id, endpoint, p256dh, auth, created_at, gone_at)
+  select :A::uuid, 'https://fcm.googleapis.com/fcm/send/vivo' || g, :P256, :AUTH, now() - (g || ' days')::interval, null
+  from generate_series(1, 7) g
+  union all
+  select :A::uuid, 'https://fcm.googleapis.com/fcm/send/muerto' || g, :P256, :AUTH, now(), now()
+  from generate_series(1, 3) g;
+set role authenticated;
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+select count(*) from (select public.register_push_subscription('https://web.push.apple.com/nuevo', :P256, :AUTH, 'iPhone')) x \g /dev/null
 reset role;
-select pg_temp.check((select count(*) from push_subscriptions where endpoint like '%a-mac') = 0, 'caducadas de más de 30 días se borran');
+select pg_temp.check((select count(*) from push_subscriptions where user_id = :A::uuid and gone_at is null) = 8,
+  'límite de 10: 7 activas + 1 nueva se conservan; se descarta una caducada');
 
 -- ---------- Desmarcar: estado 'missed' (no 'expired') ----------
 select pg_temp.check((select reminder_status from tasks where title = 'reabrir') = 'missed', 'desmarcar tarde → missed');

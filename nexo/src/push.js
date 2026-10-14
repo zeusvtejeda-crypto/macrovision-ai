@@ -102,7 +102,8 @@ export async function enablePush(supabase) {
   try {
     const reg = await registration();
     let sub = await reg.pushManager.getSubscription();
-    if (sub && !sameKey(sub)) { await sub.unsubscribe(); sub = null; } // cambiaron las claves VAPID
+    // Claves VAPID distintas, o el servicio push ya la dio por caducada (410): pedir una nueva.
+    if (sub && (!sameKey(sub) || (await serverRow(supabase, sub.endpoint))?.gone)) { await sub.unsubscribe(); sub = null; }
     if (!sub) sub = await subscribe(reg);
     await save(supabase, sub);
     setStored(sub.endpoint);

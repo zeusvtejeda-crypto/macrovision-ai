@@ -51,7 +51,7 @@ function fakeSupabase(store, userId = 'u1') {
       register_push_subscription: ({ p_endpoint, p_user_agent }, st) => {
         st.push_subscriptions ??= [];
         const existing = st.push_subscriptions.find((r) => r.endpoint === p_endpoint);
-        if (existing) Object.assign(existing, { user_id: userId, user_agent: p_user_agent });
+        if (existing) Object.assign(existing, { user_id: userId, user_agent: p_user_agent, gone_at: null });
         else st.push_subscriptions.push({ id: `s${++seq}`, user_id: userId, endpoint: p_endpoint, user_agent: p_user_agent });
         return 'ok';
       },
@@ -155,6 +155,15 @@ describe('cliente push', () => {
     expect(await push.syncPush(db)).toBe(true);
     expect(browser.sub.endpoint).not.toBe(old);
     expect(store.push_subscriptions.map((r) => [r.endpoint, Boolean(r.gone_at)])).toEqual([[browser.sub.endpoint, false]]);
+  });
+
+  it('Activar avisos con una suscripción caducada (410) pide una nueva en vez de re-registrar la muerta', async () => {
+    await push.enablePush(db);
+    const dead = browser.sub.endpoint;
+    markGone();
+    expect(await push.enablePush(db)).toBe('granted');
+    expect(browser.sub.endpoint).not.toBe(dead);
+    expect(store.push_subscriptions.find((r) => r.endpoint === browser.sub.endpoint)?.gone_at ?? null).toBeNull();
   });
 
   for (const [name, change] of [

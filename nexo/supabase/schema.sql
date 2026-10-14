@@ -139,7 +139,7 @@ begin
   if new.remind_at < now() - interval '5 minutes' then
     if rescheduled then raise exception 'La hora del aviso ya pasó' using errcode = '22023'; end if;
     new.reminded_at := now();
-    new.reminder_status := 'missed'; -- la tarea estaba completada a la hora del aviso
+    new.reminder_status := 'missed'; -- se reabrió cuando la hora del aviso ya había pasado
     return new;
   end if;
   -- Serializa por usuario para que inserciones concurrentes no se salten el tope.
@@ -172,8 +172,9 @@ create table if not exists public.push_subscriptions (
   created_at timestamptz not null default now(),
   last_success_at timestamptz
 );
--- El servicio push respondió 404/410: no se envía más, pero la fila queda (30 días) para que la app
--- distinga "caducó/rotó" (re-registrar) de "el usuario la quitó" (respetar).
+-- El servicio push respondió 404/410: no se envía más, pero la fila queda para que la app distinga
+-- "caducó/rotó" (re-registrar) de "el usuario la quitó" (fila borrada → respetar). Las caducadas solo
+-- se eliminan cuando hace falta lugar (límite de 10 por cuenta) y siempre antes que las activas.
 alter table public.push_subscriptions add column if not exists gone_at timestamptz;
 create index if not exists push_subs_user on public.push_subscriptions (user_id);
 
@@ -209,10 +210,11 @@ begin
         user_agent = excluded.user_agent, created_at = case when push_subscriptions.user_id = excluded.user_id then push_subscriptions.created_at else now() end
   returning id into sub_id;
 
-  -- Máximo 10 dispositivos por usuario (se descartan los más antiguos).
+  -- Máximo 10 dispositivos por usuario: primero se descartan las caducadas, luego las activas más antiguas.
   delete from public.push_subscriptions
   where user_id = uid and id <> sub_id and id in (
-    select id from public.push_subscriptions where user_id = uid and id <> sub_id order by created_at desc offset 9
+    select id from public.push_subscriptions where user_id = uid and id <> sub_id
+    order by (gone_at is null) desc, created_at desc offset 9
   );
   return sub_id;
 end $$;
@@ -244,7 +246,6 @@ language sql security invoker set search_path = public as $$
      set reminder_status = 'unknown'
    where reminder_status is null and reminded_at < now() - interval '10 minutes';
 
-  delete from public.push_subscriptions where gone_at < now() - interval '30 days';
 
   with ranked as (
     select id, remind_at, row_number() over (partition by user_id order by remind_at) as rn

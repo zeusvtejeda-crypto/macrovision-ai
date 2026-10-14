@@ -440,8 +440,8 @@ function PushCard() {
   const disable = () => run(() => disablePush(supabase));
   const removeDevice = (d) => run(async () => {
     const here = await thisDeviceEndpoint().catch(() => null);
-    if (d.endpoint === here || d.endpoint === storedEndpoint()) return disablePush(supabase);
-    const { error } = await supabase.from('push_subscriptions').delete().eq('id', d.id);
+    if (d.endpoint === here || d.endpoint === storedEndpoint()) await disablePush(supabase); // es este dispositivo
+    const { error } = await supabase.from('push_subscriptions').delete().eq('id', d.id); // por si rotó: borra esta fila
     if (error) throw error;
   });
 
@@ -499,7 +499,7 @@ const REMINDER_LABELS = {
   rejected: ['⚠️', 'No se entregó: el servicio push lo rechazó'],
   failed: ['⚠️', 'No se entregó: el servicio push falló'],
   expired: ['⌛', 'No se envió: venció hace más de 12 h'],
-  missed: ['⌛', 'No se envió: la tarea estaba completada a la hora del aviso'],
+  missed: ['⌛', 'No se envió: la tarea se reabrió cuando la hora del aviso ya había pasado'],
   unknown: ['❔', 'Estado desconocido: pudo no haber llegado'],
 };
 const RETRYABLE = new Set(['no_devices', 'rejected', 'failed', 'expired', 'missed', 'unknown']);
