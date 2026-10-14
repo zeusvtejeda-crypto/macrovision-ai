@@ -3,7 +3,7 @@ import { TOOLS, executeTool, ToolInputError } from './tools.js';
 
 const MAX_ITERATIONS = 8;
 // Por voz: menos pasos y respuestas cortas (Atajos corta pronto la conexión y se leerá en voz alta).
-const SIRI_LIMITS = { iterations: 4, maxTokens: 1024 };
+const SIRI_LIMITS = { iterations: 4, maxTokens: 2048 }; // el pensamiento adaptativo cuenta dentro de max_tokens
 // Modelos que aceptan fallbacks: "default" (reintento en otro modelo si hay rechazo).
 const FALLBACK_MODELS = new Set(['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-fable-5-1']);
 
@@ -28,7 +28,8 @@ Canal: Siri / Atajos de Apple. Tu respuesta se leerá en voz alta: 1 o 2 frases 
 }
 
 // history: [{role:'user'|'assistant', content:string}], último = mensaje nuevo del usuario.
-export async function runAgent({ client, model, db, system, history, today, tz = 'America/Mexico_City', channel = 'app' }) {
+// deadlineAt: instante (ms) tras el cual no se hacen más llamadas (Siri/Atajos cortan pronto).
+export async function runAgent({ client, model, db, system, history, today, tz = 'America/Mexico_City', channel = 'app', deadlineAt = null }) {
   const maxIterations = channel === 'siri' ? SIRI_LIMITS.iterations : MAX_ITERATIONS;
   const messages = history.map((m) => ({ role: m.role, content: m.content }));
   const actions = [];
@@ -44,14 +45,26 @@ export async function runAgent({ client, model, db, system, history, today, tz =
       output_config: { effort: 'low' },
       messages,
     };
+    const opts = {};
+    if (deadlineAt) {
+      const left = deadlineAt - Date.now();
+      if (left < 3000) throw new DeadlineError();
+      opts.timeout = left;
+      opts.maxRetries = 0;
+    }
     const response = useFallback
-      ? await client.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
-      : await client.messages.create(params);
+      ? await client.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }, opts)
+      : await client.messages.create(params, opts);
 
     messages.push({ role: 'assistant', content: response.content });
 
     if (response.stop_reason === 'refusal') {
       return { text: 'No puedo ayudar con esa solicitud.', actions };
+    }
+    if (response.stop_reason === 'max_tokens') {
+      // Nunca "Listo." sin haber terminado: podría sonar a acción ejecutada.
+      const text = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+      return { text: text ? `${text} …(me quedé sin espacio para terminar)` : 'No alcancé a terminar la respuesta. Intenta de nuevo con una petición más corta.', actions, truncated: true };
     }
     if (response.stop_reason !== 'tool_use') {
       const text = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
@@ -77,8 +90,12 @@ export async function runAgent({ client, model, db, system, history, today, tz =
   return { text: 'Me detuve porque la tarea requería demasiados pasos. Intenta dividirla.', actions };
 }
 
-export function makeClient() {
-  return new Anthropic();
+export class DeadlineError extends Error {
+  constructor() { super('Se agotó el tiempo disponible para responder.'); this.name = 'DeadlineError'; }
+}
+
+export function makeClient(options = {}) {
+  return new Anthropic(options);
 }
 
 export { Anthropic };

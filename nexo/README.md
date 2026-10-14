@@ -105,7 +105,7 @@ Detalles:
 cp .env.example .env.local   # llena tus claves
 npm install
 npx vercel dev               # UI + /api/chat (npm run dev solo sirve la UI)
-npm test                     # 95 tests (vitest): herramientas, agente, endpoints, zona horaria/DST, push (servidor y cliente)
+npm test                     # 100 tests (vitest): herramientas, agente, endpoints, zona horaria/DST, push (servidor y cliente)
 npm run test:sql             # RLS, avisos y suscripciones contra Postgres local (si tienes PostgreSQL)
 npm run build
 # Prueba de humo en Chromium (service worker → notificación) — requiere Playwright:

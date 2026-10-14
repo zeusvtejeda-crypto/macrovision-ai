@@ -1,11 +1,11 @@
 // Una vuelta de conversación con NEXO: lee memoria/historial, ejecuta el agente y guarda el chat.
 // Lo usan /api/chat (JWT del usuario) y /api/shortcut (cliente acotado al usuario del token).
-import { buildSystem, runAgent, makeClient, Anthropic } from './agent.js';
+import { buildSystem, runAgent, makeClient, Anthropic, DeadlineError } from './agent.js';
 import { localNow } from './time.js';
 
 const HISTORY_LIMIT = 20;
 
-export async function converse({ db, message, tz, channel = 'app', client = makeClient(), model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5' }) {
+export async function converse({ db, message, tz, channel = 'app', client = makeClient(), model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5', deadlineAt = null }) {
   const [{ data: memories = [] }, { data: past = [] }, { count: pushDevices }] = await Promise.all([
     db.from('memories').select('content').order('created_at', { ascending: true }).limit(50),
     db.from('chat_messages').select('role,content').order('created_at', { ascending: false }).limit(HISTORY_LIMIT),
@@ -26,6 +26,7 @@ export async function converse({ db, message, tz, channel = 'app', client = make
     today: now.today,
     tz,
     channel,
+    deadlineAt,
   });
 
   await db.from('chat_messages').insert({ role: 'assistant', content: text });
@@ -34,6 +35,7 @@ export async function converse({ db, message, tz, channel = 'app', client = make
 
 // Error de Claude → respuesta HTTP sin detalles internos.
 export function claudeError(err) {
+  if (err instanceof DeadlineError) return { status: 504, error: 'Tardé demasiado y me detuve. Intenta con una petición más corta.' };
   if (err instanceof Anthropic.AuthenticationError) return { status: 502, error: 'API key de Claude inválida.' };
   if (err instanceof Anthropic.RateLimitError) return { status: 429, error: 'Límite de Claude alcanzado; intenta en un momento.' };
   if (err instanceof Anthropic.APIError) return { status: 502, error: `Error de Claude (${err.status}).` };

@@ -52,6 +52,26 @@ describe('bucle del agente', () => {
   });
 });
 
+it('respuesta cortada por max_tokens nunca se reporta como "Listo."', async () => {
+  const client = scriptedClient([{ stop_reason: 'max_tokens', content: [{ type: 'thinking', thinking: '' }] }]);
+  const r = await runAgent({ client, model: 'm', db: fakeDb({}), system: 's', history: [{ role: 'user', content: 'x' }], today: '2026-10-14' });
+  expect(r.text).not.toBe('Listo.');
+  expect(r.truncated).toBe(true);
+  const client2 = scriptedClient([{ stop_reason: 'max_tokens', content: [{ type: 'text', text: 'Tienes 3 pendientes: a, b' }] }]);
+  expect((await runAgent({ client: client2, model: 'm', db: fakeDb({}), system: 's', history: [{ role: 'user', content: 'x' }], today: '2026-10-14' })).text).toMatch(/sin espacio/);
+});
+
+it('con deadline pasa timeout por llamada y se detiene antes de agotarlo', async () => {
+  const seen = [];
+  const create = async (p, o) => { seen.push(o); await new Promise((r) => setTimeout(r, 300)); return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't', name: 'buscar_notas', input: {} }] }; };
+  const client = { messages: { create }, beta: { messages: { create } } };
+  await expect(runAgent({ client, model: 'm', db: fakeDb({}), system: 's', history: [{ role: 'user', content: 'x' }], today: '2026-10-14', deadlineAt: Date.now() + 3200 }))
+    .rejects.toThrow(/tiempo/);
+  expect(seen).toHaveLength(1); // la 2ª llamada ya no cabía (<3 s)
+  expect(seen[0].timeout).toBeLessThanOrEqual(3200);
+  expect(seen[0].maxRetries).toBe(0);
+});
+
 it('por Siri el agente da menos pasos', async () => {
   const loop = () => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't', name: 'buscar_notas', input: {} }] });
   const client = scriptedClient(Array.from({ length: 20 }, loop));

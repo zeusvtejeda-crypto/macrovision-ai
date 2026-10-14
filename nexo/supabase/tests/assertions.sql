@@ -272,11 +272,13 @@ select pg_temp.check((select user_id = :A::uuid and allowed and time_zone = 'Ame
 select pg_temp.check((select count(*) from public.use_api_token('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 3, 100)) = 0, 'token desconocido → nada');
 select pg_temp.check((select allowed from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 100)), '2º uso permitido');
 select pg_temp.check((select allowed from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 100)), '3er uso permitido');
-select pg_temp.check((select not allowed from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 100)), '4º uso en el mismo minuto → límite');
+select pg_temp.check((select not allowed and reason = 'minute' from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 100)), '4º uso en el mismo minuto → límite (motivo: minute)');
+do $$ declare i int; begin for i in 1..25 loop perform public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 100); end loop; end $$;
+select pg_temp.check((select window_count = 3 and day_count = 3 from api_tokens where name = 'iPhone'), 'las solicitudes rechazadas no cuentan');
 update api_tokens set window_start = now() - interval '2 minutes';
 select pg_temp.check((select allowed from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 100)), 'pasado el minuto se permite de nuevo');
 update api_tokens set day_count = 100, day_start = (now() at time zone 'utc')::date, window_start = null;
-select pg_temp.check((select not allowed from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 100)), 'límite diario');
+select pg_temp.check((select not allowed and reason = 'token_day' from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 100)), 'límite diario (motivo: token_day)');
 reset role;
 
 set role authenticated;
@@ -297,7 +299,7 @@ insert into api_tokens (user_id, name, token_hash, prefix, day_start, day_count)
   (:A::uuid, 'uno', '1111111111111111111111111111111111111111111111111111111111111111', 'nexo_AbCd', (now() at time zone 'utc')::date, 250),
   (:A::uuid, 'dos', '2222222222222222222222222222222222222222222222222222222222222222', 'nexo_AbCd', (now() at time zone 'utc')::date, 250);
 set role service_role;
-select pg_temp.check((select not allowed from public.use_api_token('1111111111111111111111111111111111111111111111111111111111111111', 20, 300, 500)), 'tope diario por cuenta (500 entre todos sus tokens)');
+select pg_temp.check((select not allowed and reason = 'account_day' from public.use_api_token('1111111111111111111111111111111111111111111111111111111111111111', 20, 300, 500)), 'tope diario por cuenta (500 entre todos sus tokens; motivo: account_day)');
 reset role;
 delete from api_tokens where name in ('uno', 'dos');
 select pg_temp.check(exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'chat_messages'),

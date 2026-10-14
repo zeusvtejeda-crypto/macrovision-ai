@@ -65,7 +65,8 @@ describe('/api/shortcut', () => {
         calls.push(p_hash);
         if (p_hash !== hashToken(token) || !tokenRow) return [];
         tokenRow.count++;
-        return [{ user_id: 'A', time_zone: 'America/Mexico_City', allowed: tokenRow.count <= PER_MINUTE }];
+        const allowed = tokenRow.count <= PER_MINUTE;
+        return [{ user_id: 'A', time_zone: 'America/Mexico_City', allowed, reason: allowed ? null : tokenRow.reason || 'minute' }];
       },
     },
   });
@@ -106,9 +107,40 @@ describe('/api/shortcut', () => {
     expect(calls).toEqual([hashToken(token)]);
   });
 
-  it('límite de frecuencia → 429', async () => {
+  it('límite de frecuencia → 429 con el motivo correcto', async () => {
     tokenRow.count = PER_MINUTE;
-    expect((await call({ body: { texto: 'hola', accion: 'nota' } })).statusCode).toBe(429);
+    const r1 = await call({ body: { texto: 'hola', accion: 'nota' } });
+    expect(r1.statusCode).toBe(429);
+    expect(r1.body).toMatch(/por minuto/);
+    tokenRow = { count: PER_MINUTE, reason: 'account_day' };
+    expect((await call({ body: { texto: 'hola' } })).body).toMatch(/límite diario de Siri/);
+  });
+
+  it('acepta "Acción" con acento como clave', async () => {
+    const r = await call({ body: { Texto: 'Pilas', Acción: 'nota' } });
+    expect(r.body).toBe('Listo, guardé la nota.');
+    expect(st.notes.at(-1).content).toBe('Pilas');
+  });
+
+  it('si Claude falla después del límite, deja el motivo en el chat', async () => {
+    const client = { messages: { create: async () => { await new Promise((r) => setTimeout(r, 40)); throw Object.assign(new Error('overloaded'), { status: 529 }); } } };
+    client.beta = { messages: client.messages };
+    const pending = [];
+    const r = await call({ body: { texto: 'Organiza mi semana' } }, { client, deadlineMs: 10, waitUntil: (p) => pending.push(p) });
+    expect(r.body).toMatch(/chat de NEXO/);
+    await pending[0];
+    expect(st.chat_messages.map((m) => m.role)).toEqual(['user', 'assistant']);
+    expect(st.chat_messages[1].content).toMatch(/No pude completar/);
+  });
+
+  it('respeta el tope total: no inicia llamadas sin tiempo y lo explica', async () => {
+    let calls = 0;
+    const client = { messages: { create: async () => { calls++; return { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't', name: 'buscar_notas', input: {} }] }; } } };
+    client.beta = { messages: client.messages };
+    const r = await call({ body: { texto: 'busca' } }, { client, totalMs: 1000, deadlineMs: 5000 });
+    expect(calls).toBe(0); // quedaban <3 s desde el inicio → DeadlineError antes de la primera llamada
+    expect(r.statusCode).toBe(504);
+    expect(r.body).toMatch(/Tardé demasiado/);
   });
 
   it('accion nota: guarda lo dictado para el dueño del token (texto plano)', async () => {
@@ -156,7 +188,7 @@ describe('/api/shortcut', () => {
     expect(r.statusCode).toBe(200);
     expect(r.body).toBe('Tienes 2 pendientes: ver');
     expect(seen[0].system).toMatch(/Siri/);
-    expect(seen[0].max_tokens).toBeLessThanOrEqual(1024);
+    expect(seen[0].max_tokens).toBeLessThanOrEqual(2048);
     expect(st.chat_messages.map((m) => [m.user_id, m.role])).toEqual([['A', 'user'], ['A', 'assistant']]);
   });
 

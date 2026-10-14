@@ -155,17 +155,21 @@ function Chat({ session }) {
   const [latest, reload] = useTable('chat_messages', (q) => q.order('created_at', { ascending: false }).limit(200));
   const msgs = useMemo(() => [...latest].reverse(), [latest]);
   const [text, setText] = useState('');
-  const [pending, setPending] = useState(null);
+  const [pending, setPending] = useState(null); // { text, sentAt }
   const [error, setError] = useState('');
   const end = useRef(null);
 
   useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs, pending]);
+  // Con Realtime, el mensaje enviado llega desde la base antes de que termine la petición: no pintarlo dos veces.
+  const since = (m) => pending && new Date(m.created_at).getTime() >= pending.sentAt - 5000;
+  const echoed = Boolean(pending && msgs.some((m) => m.role === 'user' && m.content === pending.text && since(m)));
+  const answered = Boolean(pending && msgs.some((m) => m.role === 'assistant' && since(m)));
 
   async function send(e) {
     e.preventDefault();
     const message = text.trim();
     if (!message || pending) return;
-    setText(''); setError(''); setPending(message);
+    setText(''); setError(''); setPending({ text: message, sentAt: Date.now() });
     try {
       const { data } = await supabase.auth.getSession();
       const r = await fetch('/api/chat', {
@@ -193,7 +197,8 @@ function Chat({ session }) {
           </div>
         )}
         {msgs.map((m) => <div key={m.id} className={`bubble ${m.role}`}>{m.content}</div>)}
-        {pending && <><div className="bubble user">{pending}</div><div className="bubble assistant muted">Pensando…</div></>}
+        {pending && !echoed && <div className="bubble user">{pending.text}</div>}
+        {pending && !answered && <div className="bubble assistant muted">Pensando…</div>}
         <div ref={end} />
       </div>
       {error && <p className="error">{error}</p>}

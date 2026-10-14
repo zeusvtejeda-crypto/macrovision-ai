@@ -330,30 +330,39 @@ drop trigger if exists api_tokens_limit on public.api_tokens;
 create trigger api_tokens_limit before insert on public.api_tokens
   for each row execute function public.api_tokens_limit();
 
--- Valida un token y cuenta su uso de forma atómica (límite por minuto y por día, UTC), con un
--- tope diario adicional por cuenta (suma de todos sus tokens). 0 filas = no existe, revocado o vencido.
+-- Valida un token y cuenta su uso (límite por minuto y por día UTC por token, y por día por cuenta
+-- sumando todos sus tokens). Solo cuentan las solicitudes permitidas; se serializa por cuenta.
+-- 0 filas = no existe, revocado o vencido. reason: null | minute | token_day | account_day.
 drop function if exists public.use_api_token(text, int, int);
+drop function if exists public.use_api_token(text, int, int, int);
 create or replace function public.use_api_token(
   p_hash text, p_per_minute int default 20, p_per_day int default 300, p_per_user_day int default 500
-) returns table (user_id uuid, time_zone text, allowed boolean)
+) returns table (user_id uuid, time_zone text, allowed boolean, reason text)
 language plpgsql security invoker set search_path = public as $$
 declare
-  r record;
-  user_total int;
+  uid uuid;
+  r public.api_tokens%rowtype;
+  today_utc date := (now() at time zone 'utc')::date;
+  wc int; dc int; others int; why text;
 begin
-  update public.api_tokens t
-     set window_count = case when t.window_start > now() - interval '1 minute' then t.window_count + 1 else 1 end,
-         window_start = case when t.window_start > now() - interval '1 minute' then t.window_start else now() end,
-         day_count = case when t.day_start = (now() at time zone 'utc')::date then t.day_count + 1 else 1 end,
-         day_start = (now() at time zone 'utc')::date,
-         last_used_at = now()
-   where t.token_hash = p_hash and t.expires_at > now()
-  returning t.user_id as uid, t.time_zone as tz, t.window_count as wc, t.day_count as dc into r;
+  select t.user_id into uid from public.api_tokens t where t.token_hash = p_hash and t.expires_at > now();
   if not found then return; end if;
-  select coalesce(sum(t.day_count), 0) into user_total
-    from public.api_tokens t
-   where t.user_id = r.uid and t.day_start = (now() at time zone 'utc')::date;
-  return query select r.uid, r.tz, (r.wc <= p_per_minute and r.dc <= p_per_day and user_total <= p_per_user_day);
+  perform pg_advisory_xact_lock(hashtextextended('nexo_api_user:' || uid::text, 0));
+  select * into r from public.api_tokens t where t.token_hash = p_hash for update;
+  wc := case when r.window_start > now() - interval '1 minute' then r.window_count else 0 end;
+  dc := case when r.day_start = today_utc then r.day_count else 0 end;
+  select coalesce(sum(case when t.day_start = today_utc then t.day_count else 0 end), 0) into others
+    from public.api_tokens t where t.user_id = uid and t.id <> r.id;
+  why := case when wc >= p_per_minute then 'minute'
+              when dc >= p_per_day then 'token_day'
+              when others + dc >= p_per_user_day then 'account_day' end;
+  if why is null then
+    update public.api_tokens t
+       set window_count = wc + 1, window_start = case when wc = 0 then now() else t.window_start end,
+           day_count = dc + 1, day_start = today_utc, last_used_at = now()
+     where t.id = r.id;
+  end if;
+  return query select uid, r.time_zone, why is null, why;
 end $$;
 revoke all on function public.use_api_token(text, int, int, int) from public, anon, authenticated;
 grant execute on function public.use_api_token(text, int, int, int) to service_role;
