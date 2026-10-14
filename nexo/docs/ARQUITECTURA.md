@@ -1,7 +1,7 @@
 # Decisiones de arquitectura (ampliación 2026-10)
 
 ## 1. Se mantiene la PWA + Supabase; no se migra a app nativa
-**Por qué:** iCloud/CloudKit como almacén solo es viable en apps nativas (Swift) o con CloudKit JS, que exige el Apple Developer Program (US$99/año), contenedor y credenciales, y no sustituye una base relacional con búsqueda, RLS y funciones. Una app nativa implicaría reescribir todo, compilar en Xcode y distribuir por TestFlight/App Store; desde este entorno no se puede compilar ni probar.
+**Por qué (verificado en documentación de Apple, oct-2026):** CloudKit JS sí puede leer/escribir la base privada del usuario, pero exige Apple Developer Program de pago, un contenedor creado con Xcode **y una app nativa** que use CloudKit, inicio de sesión con Apple ID (token web que caduca a los 30 min/2 semanas) y el backend no puede leer la base privada por sí mismo ([CloudKit JS](https://developer.apple.com/documentation/cloudkitjs), [capacidades por programa](https://developer.apple.com/help/account/reference/supported-capabilities-ios)). No sustituye una base relacional con búsqueda, RLS y funciones. iCloud Drive no tiene API web. Una app nativa implicaría reescribir todo, compilar en Xcode y distribuir por TestFlight/App Store; desde este entorno no se puede compilar ni probar.
 
 **Impacto:** cero migración de datos (se amplía el esquema actual), mantenimiento de una sola base de código, misma URL en los tres dispositivos. Limitación: no hay integración “nativa” con iCloud Drive/CloudKit; ver §4.
 
@@ -25,7 +25,12 @@
 - **Calendario:** NEXO publica un calendario ICS privado (por token) al que se suscribe Apple Calendar; aparece en iPhone/iPad/Mac. La lectura del calendario de Apple no es posible desde una web; se cubre con el atajo (acción de Atajos que envía los eventos del día a NEXO).
 - **Recordatorios:** no hay API web; NEXO usa sus propios avisos push y puede crear recordatorios de Apple vía Atajos.
 - **Compartir hacia la app:** Safari no soporta Web Share Target; se usa el atajo en la hoja de compartir (ya existe la vía `/api/shortcut`).
-- **Voz:** dictado del teclado de iOS en cualquier campo; notas de voz con `MediaRecorder` (archivo) y transcripción con Claude solo si la API lo permite; si no, se guarda el audio y se transcribe con el dictado de Atajos.
+- **Voz:** dictado del teclado de iOS en cualquier campo y el atajo de Siri (dictado → texto). Notas de voz: se graba con `MediaRecorder` (audio/mp4 en Safari) y se guarda como adjunto. El reconocimiento de voz en vivo (Web Speech) **no está disponible en web apps de pantalla de inicio** ([WebKit 225298](https://bugs.webkit.org/show_bug.cgi?id=225298)) y la API de Claude **no acepta audio** ([modelos](https://platform.claude.com/docs/en/about-claude/models/overview)); transcribir automáticamente requeriría un servicio de voz a texto aparte (opcional, no incluido).
+- **Compartir hacia NEXO:** Safari no soporta Web Share Target ([MDN](https://developer.mozilla.org/docs/Web/Progressive_web_apps/Manifest/Reference/share_target)); se usa el atajo en la hoja de compartir → `/api/shortcut`. Los enlaces desde otras apps (correo, mensajes) abren Safari, no la app instalada.
+- **Almacenamiento local:** IndexedDB con `navigator.storage.persist()`; en apps de pantalla de inicio Safari lo concede y no aplica el borrado por 7 días de inactividad ([WebKit](https://webkit.org/blog/14403/updates-to-storage-policy/)). Sin Background Sync: la sincronización ocurre al abrir la app, al volver la conexión y mientras está visible.
+- **Mac (app del Dock):** el manifiesto `shortcuts` añade comandos al menú Archivo y al Dock (macOS Sonoma+); los atajos de teclado los define la app con `keydown`.
+- **Adjuntos:** Supabase Storage (Free: 1 GB, 50 MB por archivo), bucket privado por carpeta de usuario. Claude analiza imágenes (JPEG/PNG/GIF/WebP, ≤10 MB) y PDF (≤32 MB, ≤600 páginas) desde el servidor.
+- **Búsqueda:** texto completo en Postgres con configuración `spanish` + `unaccent` (sin acentos). Búsqueda semántica (embeddings) no incluida: Anthropic no ofrece embeddings; requeriría Voyage AI + pgvector (opcional).
 - Lo que no sea posible se muestra como “no disponible en esta plataforma”, nunca simulado.
 
 ## 5. IA

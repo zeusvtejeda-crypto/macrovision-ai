@@ -10,13 +10,14 @@ if [ "$(id -u)" = 0 ]; then chown postgres "$DIR"; RUN=(runuser -u postgres --);
 cp supabase/schema.sql supabase/tests/*.sql "$DIR/"; chmod 644 "$DIR"/*.sql
 cleanup() { "${RUN[@]}" "$PGBIN/pg_ctl" -D "$DIR/data" stop -m immediate >/dev/null 2>&1 || true; rm -rf "$DIR"; }
 trap cleanup EXIT
-"${RUN[@]}" "$PGBIN/initdb" -D "$DIR/data" -A trust -U postgres >/dev/null
+"${RUN[@]}" "$PGBIN/initdb" -D "$DIR/data" -A trust -U postgres -E UTF8 --locale=C.UTF-8 >/dev/null
 "${RUN[@]}" "$PGBIN/pg_ctl" -D "$DIR/data" -o "-p 5499 -k $DIR -c listen_addresses=''" -l "$DIR/log" start >/dev/null
 PSQL=("${RUN[@]}" "$PGBIN/psql" -h "$DIR" -p 5499 -U postgres -v ON_ERROR_STOP=1 -qAt)
 "${PSQL[@]}" -c "create database nexo" >/dev/null
 "${PSQL[@]}" -d nexo -f "$DIR/mock_supabase.sql" 2>&1 | grep -v "wal_level\|HINT" || true
-"${PSQL[@]}" -d nexo -f "$DIR/schema.sql" >/dev/null 2>&1
-"${PSQL[@]}" -d nexo -f "$DIR/schema.sql" >/dev/null 2>&1   # idempotencia
+apply_schema() { if ! "${PSQL[@]}" -d nexo -f "$DIR/schema.sql" >"$DIR/schema.out" 2>&1; then echo "FALLÓ schema.sql ($1):"; grep -v "NOTICE" "$DIR/schema.out" | tail -5; exit 1; fi; }
+apply_schema "1ª vez"
+apply_schema "2ª vez (idempotencia)"
 "${PSQL[@]}" -d nexo -f "$DIR/assertions.sql" 2>&1 | sed 's/^psql:[^ ]* NOTICE:  /  /'
 
 # Concurrencia: dos sesiones insertan 150 avisos cada una para el mismo usuario a la vez → el tope (200) se mantiene.

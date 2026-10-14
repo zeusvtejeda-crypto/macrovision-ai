@@ -333,4 +333,118 @@ select count(*) from push_subscriptions where user_id = :A::uuid and gone_at is 
 reset role;
 select pg_temp.check((select count(*) from notes where content = 'siri nota') = 1, 'service_role puede hacer todo el flujo de Siri');
 
+
+-- ============================================================
+-- v2: valores iniciales, sincronización, deshacer, repetición, acuerdos, búsqueda, aislamiento
+-- ============================================================
+set role authenticated;
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+select public.ensure_defaults() \g /dev/null
+select public.ensure_defaults() \g /dev/null
+select pg_temp.check((select count(*) from areas) = 3 and (select count(*) from settings) = 1, 'ensure_defaults crea ajustes y 3 áreas una sola vez');
+select pg_temp.check((select time_zone = 'America/Mazatlan' and currency = 'MXN' from settings), 'valores por defecto: Mazatlán / MXN');
+
+-- sync_push: crear con id del cliente, actualizar con versión, conflicto, borrar
+select public.sync_push('[{"table":"tasks","id":"11111111-1111-1111-1111-111111111111","op":"upsert","base_version":null,
+  "row":{"title":"Sincronizada","priority":2,"status":"pending","reminded_at":"2020-01-01T00:00:00Z","user_id":"00000000-0000-0000-0000-00000000000b"}}]'::jsonb) as r \gset
+select pg_temp.check((:'r'::jsonb)->0->>'status' = 'applied' and ((:'r'::jsonb)->0->>'version')::int = 1, 'sync: crear → applied v1');
+select pg_temp.check((select reminded_at is null and user_id = :A::uuid and priority = 2 from tasks where id = '11111111-1111-1111-1111-111111111111'),
+  'sync: ignora columnas de solo lectura y user_id ajeno');
+select public.sync_push('[{"table":"tasks","id":"11111111-1111-1111-1111-111111111111","op":"upsert","base_version":1,"row":{"title":"Editada en iPhone"}}]'::jsonb) as r \gset
+select pg_temp.check((:'r'::jsonb)->0->>'status' = 'applied' and ((:'r'::jsonb)->0->>'version')::int = 2, 'sync: actualizar con versión correcta → v2');
+select public.sync_push('[{"table":"tasks","id":"11111111-1111-1111-1111-111111111111","op":"upsert","base_version":1,"row":{"title":"Editada en Mac (vieja)"}}]'::jsonb) as r \gset
+select pg_temp.check((:'r'::jsonb)->0->>'status' = 'conflict' and (:'r'::jsonb)->0->'server'->>'title' = 'Editada en iPhone', 'sync: versión vieja → conflicto con la fila del servidor');
+select pg_temp.check((select title from tasks where id = '11111111-1111-1111-1111-111111111111') = 'Editada en iPhone', 'sync: el conflicto no sobrescribe');
+select public.sync_push('[{"table":"tasks","id":"11111111-1111-1111-1111-111111111111","op":"delete","base_version":2}]'::jsonb) as r \gset
+select pg_temp.check((:'r'::jsonb)->0->>'status' = 'applied' and (select deleted_at is not null from tasks where id = '11111111-1111-1111-1111-111111111111'), 'sync: borrar = borrado lógico');
+select public.sync_push('[{"table":"api_tokens","id":"11111111-1111-1111-1111-111111111112","op":"upsert","row":{"name":"x"}},
+  {"table":"tasks","id":"no-es-uuid","op":"upsert","row":{"title":"x"}},
+  {"table":"tasks","id":"11111111-1111-1111-1111-111111111113","op":"upsert","row":{"title":"ok","status":"invalido"}}]'::jsonb) as r \gset
+select pg_temp.check((select bool_and(x->>'status' = 'rejected') from jsonb_array_elements(:'r'::jsonb) x) and jsonb_array_length(:'r'::jsonb) = 3,
+  'sync: tabla no permitida, id inválido y estado inválido → rejected sin abortar el lote');
+
+-- sync_pull incluye borrados y respeta `since`
+select public.sync_pull('1970-01-01') as pull \gset
+select pg_temp.check((select count(*) from jsonb_array_elements((:'pull'::jsonb)->'tables'->'tasks'->'rows') x where x->>'id' = '11111111-1111-1111-1111-111111111111' and x->>'deleted_at' is not null) = 1,
+  'sync_pull devuelve la fila borrada');
+select pg_temp.check(jsonb_array_length(public.sync_pull(now() + interval '1 hour')->'tables'->'tasks'->'rows') = 0, 'sync_pull con since futuro → nada');
+
+-- Otro usuario no puede tocar esa fila ni por sync
+select set_config('request.jwt.claim.sub', :B, false) \g /dev/null
+select public.sync_push('[{"table":"tasks","id":"11111111-1111-1111-1111-111111111111","op":"upsert","base_version":3,"row":{"title":"hackeada"}}]'::jsonb) as r \gset
+select pg_temp.check((:'r'::jsonb)->0->>'status' = 'rejected', 'sync: B no puede escribir sobre el id de A (rejected, no conflict)');
+reset role;
+select pg_temp.check((select title from tasks where id = '11111111-1111-1111-1111-111111111111') = 'Editada en iPhone', 'sync: la fila de A quedó intacta');
+
+-- done <-> status
+set role authenticated;
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+insert into tasks (id, title, status) values ('22222222-2222-2222-2222-222222222222', 'estado', 'done');
+select pg_temp.check((select done and done_at is not null from tasks where id = '22222222-2222-2222-2222-222222222222'), 'status done → done=true');
+update tasks set done = false where id = '22222222-2222-2222-2222-222222222222';
+select pg_temp.check((select status = 'pending' and done_at is null from tasks where id = '22222222-2222-2222-2222-222222222222'), 'desmarcar → pending');
+update tasks set status = 'in_progress' where id = '22222222-2222-2222-2222-222222222222';
+select pg_temp.check((select not done from tasks where id = '22222222-2222-2222-2222-222222222222'), 'in_progress → done=false');
+
+-- Repetición
+insert into tasks (id, title, planned_on, recurrence) values ('33333333-3333-3333-3333-333333333333', 'Regar plantas', '2026-10-14', '{"freq":"daily","interval":2}');
+update tasks set done = true where id = '33333333-3333-3333-3333-333333333333';
+select pg_temp.check((select count(*) from tasks where origin = 'recurrence' and origin_id = '33333333-3333-3333-3333-333333333333' and planned_on = '2026-10-16') = 1,
+  'completar tarea recurrente crea la siguiente (cada 2 días)');
+update tasks set done = false where id = '33333333-3333-3333-3333-333333333333';
+update tasks set done = true where id = '33333333-3333-3333-3333-333333333333';
+select pg_temp.check((select count(*) from tasks where origin_id = '33333333-3333-3333-3333-333333333333') = 1, 'volver a completar no duplica la siguiente');
+select pg_temp.check(public.next_occurrence('2026-10-14', '{"freq":"weekly","byweekday":[1,4]}') = '2026-10-15', 'semanal por días: miércoles → jueves');
+select pg_temp.check(public.next_occurrence('2026-10-15', '{"freq":"weekly","byweekday":[1,4]}') = '2026-10-19', 'semanal por días: jueves → lunes');
+select pg_temp.check(public.next_occurrence('2026-01-31', '{"freq":"monthly"}') = '2026-02-28', 'mensual desde fin de mes');
+insert into tasks (id, title, planned_on, recurrence) values ('33333333-3333-3333-3333-333333333334', 'Última vez', '2026-10-14', '{"freq":"daily","until":"2026-10-14"}');
+update tasks set done = true where id = '33333333-3333-3333-3333-333333333334';
+select pg_temp.check((select count(*) from tasks where origin_id = '33333333-3333-3333-3333-333333333334') = 0, 'repetición con "until" alcanzado no crea más');
+
+-- Deshacer
+update tasks set title = 'Título nuevo' where id = '22222222-2222-2222-2222-222222222222';
+reset role;
+insert into action_log (user_id, actor, tool, summary, target_table, target_id, op, before, after, reversible)
+  values (:A::uuid, 'chat', 'editar_tarea', 'Cambió el título', 'tasks', '22222222-2222-2222-2222-222222222222', 'update',
+          '{"title":"estado","reminded_at":"2020-01-01T00:00:00Z"}', '{"title":"Título nuevo"}', true)
+  returning id as log_id \gset
+set role authenticated;
+select set_config('request.jwt.claim.sub', :B, false) \g /dev/null
+select pg_temp.check(not (public.undo_action(:'log_id'::uuid)->>'ok')::boolean, 'B no puede deshacer acciones de A');
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+select pg_temp.check((public.undo_action(:'log_id'::uuid)->>'ok')::boolean, 'A deshace');
+select pg_temp.check((select title = 'estado' and reminded_at is null from tasks where id = '22222222-2222-2222-2222-222222222222'), 'deshacer restaura el título e ignora columnas del cron');
+select pg_temp.check(not (public.undo_action(:'log_id'::uuid)->>'ok')::boolean, 'no se deshace dos veces');
+reset role;
+
+-- Acuerdos sin duplicar
+set role authenticated;
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+insert into meetings (id, title) values ('44444444-4444-4444-4444-444444444444', 'Kickoff Isoval');
+insert into agreements (meeting_id, text, owner) values ('44444444-4444-4444-4444-444444444444', 'Enviar propuesta el viernes.', null) on conflict do nothing;
+insert into agreements (meeting_id, text, owner) values ('44444444-4444-4444-4444-444444444444', 'enviar  PROPUESTA el viernes', 'Zeus') on conflict do nothing;
+select pg_temp.check((select count(*) from agreements where meeting_id = '44444444-4444-4444-4444-444444444444') = 1, 'reprocesar una transcripción no duplica acuerdos');
+select pg_temp.check((select owner = 'Por definir' from agreements where meeting_id = '44444444-4444-4444-4444-444444444444'), 'sin responsable → "Por definir"');
+
+-- Búsqueda global y aislamiento
+insert into notes (title, content, tags) values ('Hábitos atómicos', 'Las identidades se construyen con votos pequeños cada día.', '{libros}');
+insert into resources (title, kind, summary) values ('Atomic Habits', 'book', 'Hábitos pequeños, resultados grandes.');
+insert into clients (name, notes) values ('Isoval', 'Fabricante de aislantes; prefieren reels cortos.');
+select pg_temp.check((select count(distinct kind) from public.search_all('hábitos')) = 2, 'search_all encuentra nota y recurso por "hábitos"');
+select pg_temp.check((select count(distinct kind) from public.search_all('habitos')) = 2, 'search_all sin acentos ("habitos") encuentra lo mismo');
+select pg_temp.check((select count(*) from public.search_all('isoval')) >= 2, 'search_all encuentra cliente y reunión');
+select set_config('request.jwt.claim.sub', :B, false) \g /dev/null
+select pg_temp.check((select count(*) from public.search_all('hábitos')) = 0, 'B no encuentra nada de A');
+select pg_temp.check((select count(*) from clients) = 0 and (select count(*) from meetings) = 0 and (select count(*) from areas) = 0, 'RLS en tablas nuevas');
+reset role;
+
+-- Duplicados de contactos
+set role authenticated;
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+insert into contacts (name, email, phone) values ('Ana López', 'ana@isoval.mx', '+52 311 123 4567');
+select pg_temp.check((select count(*) from public.find_contact_duplicates('ana lópez')) = 1, 'duplicado por nombre');
+select pg_temp.check((select count(*) from public.find_contact_duplicates('Otra', null, '3111234567')) = 1, 'duplicado por teléfono (sin formato)');
+select pg_temp.check((select count(*) from public.find_contact_duplicates('Otra', 'ANA@isoval.mx')) = 1, 'duplicado por correo');
+reset role;
+
 \echo TODAS LAS PRUEBAS SQL PASARON
