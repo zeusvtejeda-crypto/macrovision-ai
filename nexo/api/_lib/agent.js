@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { TOOLS, executeTool, ToolInputError } from './tools.js';
 
 const MAX_ITERATIONS = 8;
+// Por voz: menos pasos y respuestas cortas (Atajos corta pronto la conexión y se leerá en voz alta).
+const SIRI_LIMITS = { iterations: 4, maxTokens: 1024 };
 // Modelos que aceptan fallbacks: "default" (reintento en otro modelo si hay rechazo).
 const FALLBACK_MODELS = new Set(['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-fable-5-1']);
 
@@ -26,15 +28,16 @@ Canal: Siri / Atajos de Apple. Tu respuesta se leerá en voz alta: 1 o 2 frases 
 }
 
 // history: [{role:'user'|'assistant', content:string}], último = mensaje nuevo del usuario.
-export async function runAgent({ client, model, db, system, history, today, tz = 'America/Mexico_City' }) {
+export async function runAgent({ client, model, db, system, history, today, tz = 'America/Mexico_City', channel = 'app' }) {
+  const maxIterations = channel === 'siri' ? SIRI_LIMITS.iterations : MAX_ITERATIONS;
   const messages = history.map((m) => ({ role: m.role, content: m.content }));
   const actions = [];
   const useFallback = FALLBACK_MODELS.has(model);
 
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
+  for (let i = 0; i < maxIterations; i++) {
     const params = {
       model,
-      max_tokens: 4096,
+      max_tokens: channel === 'siri' ? SIRI_LIMITS.maxTokens : 4096,
       system,
       tools: TOOLS,
       tool_choice: { type: 'auto' },

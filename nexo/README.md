@@ -23,7 +23,9 @@ iPhone/iPad/iMac (PWA, React) ──► Supabase (Auth + Postgres + RLS + Realti
           ├─► /api/chat (Vercel) ──► Claude API (tool use) ──► Supabase con el JWT del usuario
           └─◄ notificación ◄── Apple/Google Push ◄── /api/cron/reminders ◄── pg_cron (cada minuto)
 ```
-- `ANTHROPIC_API_KEY` solo vive en el servidor. El servidor usa el **token del usuario** (no `service_role`), así que la RLS aplica también a lo que hace Claude.
+- `ANTHROPIC_API_KEY` y `SUPABASE_SERVICE_ROLE_KEY` solo viven en el servidor.
+- Chat de la app: el servidor usa el **JWT del usuario**, así que la RLS aplica a todo lo que hace Claude.
+- Cron de avisos y Siri/Atajos: usan `service_role`. Siri lo hace a través de `scopedClient` (filtra y fija `user_id` en cada consulta) tras validar el token personal. Si se filtra `SUPABASE_SERVICE_ROLE_KEY`, rótala en Supabase de inmediato.
 
 ## 1. Supabase
 1. Crea proyecto en supabase.com.
@@ -78,7 +80,7 @@ Detalles:
 - **iMac:** Safari → Archivo → *Añadir al Dock* (macOS 14 Sonoma o posterior; en Ventura, usa NEXO como pestaña de Safari).
 
 ## 6. Siri y Atajos
-NEXO → **Ajustes** → *Siri y Atajos* → **Crear token** (uno por dispositivo; se muestra **una sola vez**, guárdalo como una contraseña) y sigue las instrucciones de esa pantalla, que ya traen tu URL y tu token para copiar. Resumen:
+NEXO → **Ajustes** → *Siri y Atajos* → **Crear token** (uno por atajo; se muestra **una sola vez**, guárdalo como una contraseña; caduca en 1 año) y sigue las instrucciones de esa pantalla, que ya traen tu URL y tu token para copiar. El atajo, con su token, se sincroniza por iCloud a todos tus dispositivos. Resumen:
 
 1. App **Atajos** → **+** → nombre **NEXO**.
 2. **Dictar texto** (Idioma: Español (México); Dejar de escuchar: Después de la pausa). Requiere Dictado activado.
@@ -93,7 +95,8 @@ Detalles:
 - Lo que dices por Siri aparece también en el Chat de NEXO. Si Claude tarda más de ~20 s (Atajos corta la conexión en un tiempo no documentado, ~25 s), Siri te avisa y la respuesta completa queda en el Chat.
 - El token vive dentro del atajo: no compartas ese atajo por enlace de iCloud (quien lo abra vería el token). Si lo hiciste, revócalo.
 - Arquitectura: Atajos → `/api/shortcut` (token personal) → mismo agente que el chat, con respuestas cortas para voz.
-- Límites por token: 20 solicitudes/minuto y 300/día. Revoca un token en Ajustes si pierdes el dispositivo.
+- Límites: 20 solicitudes/minuto y 300/día por token, y 500/día por cuenta. Por Siri el agente da máx. 4 pasos y respuestas cortas.
+- Si pierdes un dispositivo: quítalo de tu Apple ID (Buscar / Configuración → tu nombre), revoca el token en Ajustes (deja de funcionar en todos tus equipos), crea uno nuevo y pégalo una vez en el atajo; iCloud lo lleva a los demás.
 - El token solo da acceso a **tu** cuenta: el servidor lo verifica por su huella (SHA-256) y filtra cada consulta por tu usuario.
 - Requiere `SUPABASE_SERVICE_ROLE_KEY` en Vercel (ya la pusiste para los avisos) y volver a ejecutar `supabase/schema.sql`.
 
@@ -102,7 +105,7 @@ Detalles:
 cp .env.example .env.local   # llena tus claves
 npm install
 npx vercel dev               # UI + /api/chat (npm run dev solo sirve la UI)
-npm test                     # 93 tests (vitest): herramientas, agente, endpoints, zona horaria/DST, push (servidor y cliente)
+npm test                     # 95 tests (vitest): herramientas, agente, endpoints, zona horaria/DST, push (servidor y cliente)
 npm run test:sql             # RLS, avisos y suscripciones contra Postgres local (si tienes PostgreSQL)
 npm run build
 # Prueba de humo en Chromium (service worker → notificación) — requiere Playwright:

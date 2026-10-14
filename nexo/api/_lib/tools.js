@@ -1,7 +1,8 @@
 import { zonedToUtc, formatInZone } from './time.js';
 
-// Herramientas que Claude puede ejecutar. `db` es un cliente Supabase autenticado
-// con el token del usuario: la RLS garantiza que solo toca sus propios registros.
+// Herramientas que Claude puede ejecutar. `db` solo puede tocar registros del usuario:
+// en el chat es un cliente con su JWT (RLS); en Siri/Atajos, scopedClient (service_role que
+// filtra/fija user_id en cada consulta, ver api/_lib/tokens.js).
 
 export const TOOLS = [
   {

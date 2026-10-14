@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase, configured } from './supabase.js';
 import { mxn, fmtDue, localToday, REMINDER_PRESETS, computeRemindAt, fmtInstant } from './format.js';
 import { createApiToken } from './tokens.js';
@@ -151,7 +151,9 @@ function Shell({ session }) {
 }
 
 function Chat({ session }) {
-  const [msgs, reload] = useTable('chat_messages', (q) => q.order('created_at', { ascending: true }).limit(200));
+  // Los 200 más recientes (incluye lo dicho por Siri), en orden cronológico.
+  const [latest, reload] = useTable('chat_messages', (q) => q.order('created_at', { ascending: false }).limit(200));
+  const msgs = useMemo(() => [...latest].reverse(), [latest]);
   const [text, setText] = useState('');
   const [pending, setPending] = useState(null);
   const [error, setError] = useState('');
@@ -535,14 +537,14 @@ function deviceName(ua = '') {
 // Siri y Atajos: tokens personales + instrucciones para crear el atajo.
 function SiriCard() {
   const [tokens, setTokens] = useState([]);
-  const [name, setName] = useState(() => deviceGuess());
+  const [name, setName] = useState('Atajo NEXO');
   const [fresh, setFresh] = useState(null); // token recién creado (se muestra una sola vez)
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const endpoint = `${location.origin}/api/shortcut`;
 
   const load = useCallback(async () => {
-    const { data, error } = await supabase.from('api_tokens').select('id,name,prefix,created_at,last_used_at').order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('api_tokens').select('id,name,prefix,created_at,last_used_at,expires_at').order('created_at', { ascending: false });
     if (!error) setTokens(data || []);
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -553,17 +555,20 @@ function SiriCard() {
     try { setFresh(await createApiToken(supabase, name)); await load(); } catch (err) { setMsg(err.message); } finally { setBusy(false); }
   }
   async function revoke(t) {
-    if (!confirm(`¿Revocar el token “${t.name}”? El atajo que lo use dejará de funcionar.`)) return;
+    if (!confirm(`¿Revocar el token “${t.name}”? El atajo que lo use dejará de funcionar en TODOS tus dispositivos (iCloud lo sincroniza).`)) return;
     const { error } = await supabase.from('api_tokens').delete().eq('id', t.id);
     if (error) setMsg(error.message);
     load();
   }
-  const header = `Bearer ${fresh || 'nexo_…(tu token)'}`;
+  const header = fresh ? `Bearer ${fresh}` : null;
 
   return (
     <section className="siri">
       <h2>Siri y Atajos</h2>
-      <p className="muted">Háblale a NEXO con “Oye Siri, NEXO”, el Botón de acción o la app Atajos en iPhone, iPad y Mac.</p>
+      <p className="muted">
+        Háblale a NEXO con “Oye Siri, NEXO”, el Botón de acción o la app Atajos. Crea <b>un token por atajo</b>: el atajo (con su token)
+        se sincroniza por iCloud a tu iPhone, iPad y Mac. Caduca en un año.
+      </p>
 
       <form className="card row" onSubmit={create}>
         <input aria-label="Nombre del token" placeholder="Nombre (p. ej. iPhone)" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
@@ -573,7 +578,7 @@ function SiriCard() {
 
       {fresh && (
         <div className="card fresh">
-          <p><b>Copia tu token ahora:</b> no se volverá a mostrar. Trátalo como una contraseña.</p>
+          <p><b>Copia tu token ahora:</b> no se volverá a mostrar. Trátalo como una contraseña. Abajo, en el paso 3, está el valor completo del encabezado para copiarlo de una vez.</p>
           <CopyField label="Token" value={fresh} />
           <button className="ghost" onClick={() => setFresh(null)}>Ya lo copié</button>
         </div>
@@ -588,6 +593,7 @@ function SiriCard() {
                 <div className="muted small">
                   creado {new Date(t.created_at).toLocaleDateString('es-MX')}
                   {t.last_used_at ? ` · último uso ${fmtInstant(t.last_used_at)}` : ' · sin usar'}
+                  {t.expires_at && (new Date(t.expires_at) < new Date() ? ' · vencido' : ` · vence ${new Date(t.expires_at).toLocaleDateString('es-MX')}`)}
                 </div>
               </div>
               <button className="ghost" onClick={() => revoke(t)}>Revocar</button>
@@ -608,7 +614,9 @@ function SiriCard() {
             <ul>
               <li><b>Método</b>: POST</li>
               <li><b>Encabezados</b> → nuevo encabezado: Clave <code>Authorization</code>, Valor:
-                <CopyField label="Valor del encabezado" value={header} />
+                {header
+                  ? <CopyField label="Valor del encabezado" value={header} />
+                  : <span className="muted"> <code>Bearer </code> seguido de tu token (crea uno arriba para copiar aquí el valor completo).</span>}
               </li>
               <li><b>Solicitar cuerpo</b> (así se llama en español de México; en España, <i>Cuerpo de la solicitud</i>): <b>JSON</b> →
                 nuevo campo → <b>Texto</b>: Clave <code>texto</code>, Valor: toca <b>Seleccionar variable</b> y elige <b>Texto dictado</b>.</li>
@@ -643,10 +651,3 @@ function CopyField({ label, value }) {
   );
 }
 
-function deviceGuess() {
-  const ua = navigator.userAgent;
-  if (/iPhone/.test(ua)) return 'iPhone';
-  if (/iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'iPad';
-  if (/Macintosh/.test(ua)) return 'Mac';
-  return 'Atajo';
-}

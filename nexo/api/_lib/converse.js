@@ -25,6 +25,7 @@ export async function converse({ db, message, tz, channel = 'app', client = make
     history,
     today: now.today,
     tz,
+    channel,
   });
 
   await db.from('chat_messages').insert({ role: 'assistant', content: text });

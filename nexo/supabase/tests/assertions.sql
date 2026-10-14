@@ -287,6 +287,22 @@ set role service_role;
 select pg_temp.check((select count(*) from public.use_api_token('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')) = 0, 'token revocado deja de funcionar');
 reset role;
 
+-- Tokens vencidos no funcionan; tope diario por cuenta (suma de tokens)
+insert into api_tokens (user_id, name, token_hash, prefix, expires_at) values (:A::uuid, 'viejo', 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', 'nexo_AbCd', now() - interval '1 day');
+set role service_role;
+select pg_temp.check((select count(*) from public.use_api_token('eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee')) = 0, 'token vencido → nada');
+reset role;
+delete from api_tokens where name = 'viejo';
+insert into api_tokens (user_id, name, token_hash, prefix, day_start, day_count) values
+  (:A::uuid, 'uno', '1111111111111111111111111111111111111111111111111111111111111111', 'nexo_AbCd', (now() at time zone 'utc')::date, 250),
+  (:A::uuid, 'dos', '2222222222222222222222222222222222222222222222222222222222222222', 'nexo_AbCd', (now() at time zone 'utc')::date, 250);
+set role service_role;
+select pg_temp.check((select not allowed from public.use_api_token('1111111111111111111111111111111111111111111111111111111111111111', 20, 300, 500)), 'tope diario por cuenta (500 entre todos sus tokens)');
+reset role;
+delete from api_tokens where name in ('uno', 'dos');
+select pg_temp.check(exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'chat_messages'),
+  'chat_messages en Realtime (lo dicho por Siri aparece en un chat abierto)');
+
 -- Máximo 10 tokens por cuenta
 set role authenticated;
 select set_config('request.jwt.claim.sub', :A, false) \g /dev/null

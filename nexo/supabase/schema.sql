@@ -74,7 +74,7 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['tasks','notes','transactions','memories'] loop
+  foreach t in array array['tasks','notes','transactions','memories','chat_messages'] loop
     if not exists (
       select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
     ) then
@@ -297,6 +297,8 @@ create table if not exists public.api_tokens (
   day_start date,
   day_count int not null default 0
 );
+-- Caducan al año (se crea uno nuevo y se pega una vez en el atajo; iCloud lo lleva a los demás equipos).
+alter table public.api_tokens add column if not exists expires_at timestamptz not null default now() + interval '1 year';
 create index if not exists api_tokens_user on public.api_tokens (user_id);
 
 alter table public.api_tokens enable row level security;
@@ -309,7 +311,7 @@ create policy "owner_insert" on public.api_tokens for insert to authenticated wi
 create policy "owner_delete" on public.api_tokens for delete to authenticated using (user_id = auth.uid());
 revoke all on public.api_tokens from anon, authenticated;
 -- El hash no se expone al navegador después de crearlo; los contadores son del servidor.
-grant select (id, user_id, name, prefix, time_zone, created_at, last_used_at) on public.api_tokens to authenticated;
+grant select (id, user_id, name, prefix, time_zone, created_at, last_used_at, expires_at) on public.api_tokens to authenticated;
 grant insert (name, token_hash, prefix, time_zone) on public.api_tokens to authenticated;
 grant delete on public.api_tokens to authenticated;
 grant select, update on public.api_tokens to service_role;
@@ -328,19 +330,30 @@ drop trigger if exists api_tokens_limit on public.api_tokens;
 create trigger api_tokens_limit before insert on public.api_tokens
   for each row execute function public.api_tokens_limit();
 
--- Valida un token y cuenta su uso de forma atómica (límite por minuto y por día, UTC).
--- Devuelve 0 filas si el token no existe (o fue revocado = borrado).
-create or replace function public.use_api_token(p_hash text, p_per_minute int default 20, p_per_day int default 300)
-returns table (user_id uuid, time_zone text, allowed boolean)
-language sql security invoker set search_path = public as $$
+-- Valida un token y cuenta su uso de forma atómica (límite por minuto y por día, UTC), con un
+-- tope diario adicional por cuenta (suma de todos sus tokens). 0 filas = no existe, revocado o vencido.
+drop function if exists public.use_api_token(text, int, int);
+create or replace function public.use_api_token(
+  p_hash text, p_per_minute int default 20, p_per_day int default 300, p_per_user_day int default 500
+) returns table (user_id uuid, time_zone text, allowed boolean)
+language plpgsql security invoker set search_path = public as $$
+declare
+  r record;
+  user_total int;
+begin
   update public.api_tokens t
      set window_count = case when t.window_start > now() - interval '1 minute' then t.window_count + 1 else 1 end,
          window_start = case when t.window_start > now() - interval '1 minute' then t.window_start else now() end,
          day_count = case when t.day_start = (now() at time zone 'utc')::date then t.day_count + 1 else 1 end,
          day_start = (now() at time zone 'utc')::date,
          last_used_at = now()
-   where t.token_hash = p_hash
-  returning t.user_id, t.time_zone, (t.window_count <= p_per_minute and t.day_count <= p_per_day);
-$$;
-revoke all on function public.use_api_token(text, int, int) from public, anon, authenticated;
-grant execute on function public.use_api_token(text, int, int) to service_role;
+   where t.token_hash = p_hash and t.expires_at > now()
+  returning t.user_id as uid, t.time_zone as tz, t.window_count as wc, t.day_count as dc into r;
+  if not found then return; end if;
+  select coalesce(sum(t.day_count), 0) into user_total
+    from public.api_tokens t
+   where t.user_id = r.uid and t.day_start = (now() at time zone 'utc')::date;
+  return query select r.uid, r.tz, (r.wc <= p_per_minute and r.dc <= p_per_day and user_total <= p_per_user_day);
+end $$;
+revoke all on function public.use_api_token(text, int, int, int) from public, anon, authenticated;
+grant execute on function public.use_api_token(text, int, int, int) to service_role;

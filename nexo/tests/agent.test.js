@@ -52,6 +52,13 @@ describe('bucle del agente', () => {
   });
 });
 
+it('por Siri el agente da menos pasos', async () => {
+  const loop = () => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't', name: 'buscar_notas', input: {} }] });
+  const client = scriptedClient(Array.from({ length: 20 }, loop));
+  await runAgent({ client, model: 'm', db: fakeDb({}), system: 's', history: [{ role: 'user', content: 'x' }], today: '2026-10-14', channel: 'siri' });
+  expect(client.calls).toHaveLength(4);
+});
+
 describe('historial, fecha y prompt', () => {
   it('trimHistory empieza en user y fusiona roles consecutivos', () => {
     expect(trimHistory([

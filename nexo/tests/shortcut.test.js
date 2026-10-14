@@ -129,8 +129,21 @@ describe('/api/shortcut', () => {
     expect(plain.body).toMatch(/API key de Claude/);
   });
 
-  it('sin texto → 400', async () => {
-    expect((await call({ body: { texto: '   ' } })).statusCode).toBe(400);
+  it('sin texto → 400 con mensaje distinto si falta el campo', async () => {
+    const empty = await call({ body: { texto: '   ' } });
+    expect(empty.statusCode).toBe(400);
+    expect(empty.body).toMatch(/No escuché/);
+    const missing = await call({ body: { Txto: 'hola' } });
+    expect(missing.statusCode).toBe(400);
+    expect(missing.body).toMatch(/campo "texto"/);
+  });
+
+  it('acepta claves y acciones con mayúsculas/espacios; rechaza acciones desconocidas', async () => {
+    const r = await call({ body: { ' Texto ': 'Pan', Accion: ' Nota ' } });
+    expect(r.body).toBe('Listo, guardé la nota.');
+    const bad = await call({ body: { texto: 'x', accion: 'borrar todo' } });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.body).toMatch(/Acción desconocida/);
   });
 
   it('chat por Siri: usa Claude con el canal de voz, guarda el chat del usuario y responde apto para voz', async () => {
@@ -143,6 +156,7 @@ describe('/api/shortcut', () => {
     expect(r.statusCode).toBe(200);
     expect(r.body).toBe('Tienes 2 pendientes: ver');
     expect(seen[0].system).toMatch(/Siri/);
+    expect(seen[0].max_tokens).toBeLessThanOrEqual(1024);
     expect(st.chat_messages.map((m) => [m.user_id, m.role])).toEqual([['A', 'user'], ['A', 'assistant']]);
   });
 

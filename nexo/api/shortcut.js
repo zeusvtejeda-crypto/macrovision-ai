@@ -12,6 +12,7 @@ import { waitUntil } from '@vercel/functions';
 
 export const PER_MINUTE = 20;
 export const PER_DAY = 300;
+export const PER_USER_DAY = 500; // suma de todos los tokens de la cuenta
 // Atajos corta "Obtener contenido de URL" tras un tiempo no documentado (~25 s según usuarios):
 // si Claude tarda más, se responde antes y la respuesta completa queda en el chat de NEXO.
 export const SIRI_DEADLINE_MS = 20000;
@@ -55,17 +56,20 @@ export default async function handler(req, res, deps = {}) {
   const admin = deps.admin || adminClient();
   if (!admin) return reply(500, 'El servidor de NEXO no está configurado.');
 
-  const { data: rows, error } = await admin.rpc('use_api_token', { p_hash: hashToken(token), p_per_minute: PER_MINUTE, p_per_day: PER_DAY });
+  const { data: rows, error } = await admin.rpc('use_api_token', { p_hash: hashToken(token), p_per_minute: PER_MINUTE, p_per_day: PER_DAY, p_per_user_day: PER_USER_DAY });
   if (error) { console.error('use_api_token', error.message); return reply(500, 'No pude validar el token.'); }
   const tok = rows?.[0];
-  if (!tok) return reply(401, 'Ese token no existe o fue revocado. Crea uno nuevo en NEXO → Ajustes.');
+  if (!tok) return reply(401, 'Ese token no existe, venció o fue revocado. Crea uno nuevo en NEXO → Ajustes y pégalo en el atajo.');
   if (!tok.allowed) return reply(429, 'Demasiadas solicitudes con este token. Intenta en un momento.');
 
-  const body = readBody(req);
-  const raw = body.texto ?? body.text ?? body.mensaje ?? body.message;
-  const text = typeof raw === 'string' ? raw.trim().slice(0, 2000) : '';
+  // Claves sin distinguir mayúsculas/espacios (se escriben a mano en Atajos).
+  const body = Object.fromEntries(Object.entries(readBody(req)).map(([k, v]) => [String(k).trim().toLowerCase(), v]));
+  const key = ['texto', 'text', 'mensaje', 'message'].find((k) => k in body);
+  if (!key) return reply(400, 'El atajo no envió el campo "texto". Revisa el cuerpo JSON de Obtener contenido de URL.');
+  const text = typeof body[key] === 'string' ? body[key].trim().slice(0, 2000) : '';
   if (!text) return reply(400, 'No escuché nada. Inténtalo de nuevo.');
-  const accion = ['nota', 'tarea'].includes(body.accion) ? body.accion : 'chat';
+  const accion = String(body.accion ?? 'chat').trim().toLowerCase() || 'chat';
+  if (!['chat', 'nota', 'tarea'].includes(accion)) return reply(400, `Acción desconocida: "${accion}". Usa nota, tarea o déjala vacía.`);
   const tz = safeTimeZone(body.zona || tok.time_zone);
   const db = scopedClient(admin, tok.user_id);
 
