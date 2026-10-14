@@ -89,7 +89,7 @@ NEXO → **Ajustes** → *Siri y Atajos* → **Crear token** (uno por atajo; se 
 5. Ejecútalo una vez desbloqueado y elige **Permitir siempre**. Para usarlo con el iPhone bloqueado: Detalles → Privacidad → **Permitir ejecución en dispositivo bloqueado**.
 6. “**Oye Siri, NEXO**”, Botón de acción (iPhone 15 Pro y posteriores: Configuración → Botón de acción → Atajo) o control del Centro de control. En Mac llega por iCloud: Detalles → *Fijar en la barra de menús* o *Agregar función rápida de teclado*.
 
-Variantes sin Claude (rápidas y sin costo): agrega al JSON `accion` = `nota` (guarda lo dictado como nota) o `tarea` (lo agrega a Pendientes). Para usarlo desde otras apps: Detalles → *Mostrar en la hoja de compartir* y usa *Entrada de atajo* en vez de *Texto dictado*.
+Variantes sin Claude (rápidas y sin costo): agrega al JSON `accion` = `nota` (guarda lo dictado como nota), `tarea` (lo agrega a Pendientes) o `captura` (va a la Bandeja de entrada para clasificarlo después; sirve para la hoja de compartir). Para usarlo desde otras apps: Detalles → *Mostrar en la hoja de compartir* y usa *Entrada de atajo* en vez de *Texto dictado*.
 
 Detalles:
 - Lo que dices por Siri aparece también en el Chat de NEXO. Si Claude tarda más de ~20 s (Atajos corta la conexión en un tiempo no documentado, ~25 s), Siri te avisa y la respuesta completa queda en el Chat.

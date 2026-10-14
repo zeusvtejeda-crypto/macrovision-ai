@@ -1,6 +1,6 @@
 // POST /api/shortcut — entrada para Siri y la app Atajos de Apple.
 //   Authorization: Bearer nexo_…   (token personal creado en NEXO → Ajustes → Siri y Atajos)
-//   Cuerpo JSON: { "texto": "...", "accion": "chat" | "nota" | "tarea", "zona": "America/Mexico_City" }
+//   Cuerpo JSON: { "texto": "...", "accion": "chat" | "nota" | "tarea" | "captura", "zona": "America/Mazatlan" }
 //   (también acepta el texto plano como cuerpo)
 // Responde texto plano listo para "Leer texto" / "Mostrar resultado"; JSON si Accept: application/json.
 import { adminClient } from './_lib/supabase.js';
@@ -78,7 +78,7 @@ export default async function handler(req, res, deps = {}) {
   const text = typeof body[key] === 'string' ? body[key].trim().slice(0, 2000) : '';
   if (!text) return reply(400, 'No escuché nada. Inténtalo de nuevo.');
   const accion = plain(body.accion ?? 'chat') || 'chat';
-  if (!['chat', 'nota', 'tarea'].includes(accion)) return reply(400, `Acción desconocida: "${accion}". Usa nota, tarea o déjala vacía.`);
+  if (!['chat', 'nota', 'tarea', 'captura'].includes(accion)) return reply(400, `Acción desconocida: "${accion}". Usa nota, tarea, captura o déjala vacía.`);
   const tz = safeTimeZone(body.zona || tok.time_zone);
   const db = scopedClient(admin, tok.user_id);
 
@@ -86,6 +86,12 @@ export default async function handler(req, res, deps = {}) {
     if (accion === 'nota') {
       await executeTool('guardar_nota', { contenido: text }, { db, today: localNow(tz).today, tz });
       return reply(200, 'Listo, guardé la nota.', { accion });
+    }
+    if (accion === 'captura') { // a la bandeja de entrada, para clasificar después
+      const isUrl = /^https?:\/\/\S+$/i.test(text);
+      const { error } = await db.from('inbox_items').insert({ kind: isUrl ? 'link' : 'text', raw_text: isUrl ? null : text, url: isUrl ? text : null, source: 'siri' });
+      if (error) throw new Error(error.message);
+      return reply(200, 'Listo, lo guardé en tu bandeja de entrada.', { accion });
     }
     if (accion === 'tarea') {
       await executeTool('crear_tarea', { titulo: text }, { db, today: localNow(tz).today, tz });

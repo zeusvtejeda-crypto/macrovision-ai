@@ -161,6 +161,14 @@ describe('/api/shortcut', () => {
     expect(plain.body).toMatch(/API key de Claude/);
   });
 
+  it('accion captura: va a la bandeja (texto o enlace) con origen siri', async () => {
+    st.inbox_items = [];
+    await call({ body: { texto: 'Idea: reel de antes/después para Isoval', accion: 'captura' } });
+    await call({ body: { texto: 'https://ejemplo.mx/articulo', accion: 'captura' } });
+    expect(st.inbox_items.map((i) => [i.kind, i.source, i.user_id])).toEqual([['text', 'siri', 'A'], ['link', 'siri', 'A']]);
+    expect(st.inbox_items[1].url).toBe('https://ejemplo.mx/articulo');
+  });
+
   it('sin texto → 400 con mensaje distinto si falta el campo', async () => {
     const empty = await call({ body: { texto: '   ' } });
     expect(empty.statusCode).toBe(400);
