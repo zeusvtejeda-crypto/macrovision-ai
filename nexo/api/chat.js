@@ -25,7 +25,7 @@ export default async function handler(req, res) {
     const [{ data: memories = [] }, { data: past = [] }, { count: pushDevices }] = await Promise.all([
       db.from('memories').select('content').order('created_at', { ascending: true }).limit(50),
       db.from('chat_messages').select('role,content').order('created_at', { ascending: false }).limit(HISTORY_LIMIT),
-      db.from('push_subscriptions').select('id', { count: 'exact', head: true }),
+      db.from('push_subscriptions').select('id', { count: 'exact', head: true }).is('gone_at', null),
     ]);
 
     const { error: insErr } = await db.from('chat_messages').insert({ role: 'user', content: message });

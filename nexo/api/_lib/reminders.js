@@ -16,7 +16,7 @@ export async function processDueReminders({ db, vapid, sender, agent, allowEndpo
 
   const userIds = [...new Set(claimed.map((t) => t.user_id))];
   const { data: subs, error: subErr } = await db
-    .from('push_subscriptions').select('id,user_id,endpoint,p256dh,auth').in('user_id', userIds);
+    .from('push_subscriptions').select('id,user_id,endpoint,p256dh,auth').in('user_id', userIds).is('gone_at', null);
   if (subErr) {
     await release(db, claimed.map((t) => t.task_id));
     throw new Error(`push_subscriptions: ${subErr.message}`);
@@ -50,9 +50,9 @@ export async function processDueReminders({ db, vapid, sender, agent, allowEndpo
     const { error: e } = await db.from('tasks').update({ reminder_status: st }).in('id', ids);
     if (e) console.error('no se pudo guardar reminder_status', st, e.message);
   }));
-  if (gone.size) {
-    const { error: delErr } = await db.from('push_subscriptions').delete().in('id', [...gone]);
-    if (!delErr) summary.removedSubscriptions = gone.size;
+  if (gone.size) { // se marcan (no se borran): la app re-registra si fue una rotación
+    const { error: goneErr } = await db.from('push_subscriptions').update({ gone_at: now.toISOString() }).in('id', [...gone]);
+    if (!goneErr) summary.removedSubscriptions = gone.size;
   }
   if (ok.size) {
     await db.from('push_subscriptions').update({ last_success_at: now.toISOString() }).in('id', [...ok]);

@@ -1,3 +1,4 @@
+import { domainToASCII } from 'node:url';
 import webpush from 'web-push';
 
 // Solo enviamos a servicios de push reales (evita que una suscripción falsa convierta
@@ -48,8 +49,10 @@ function validSubject(subject) {
     if (u.username || u.password) return false;
     host = u.hostname;
   } else if (u.protocol === 'mailto:') {
-    const m = /^[^\s@/?#]+@([^\s@/?#]+)$/.exec(decodeURIComponent(u.pathname));
-    host = m?.[1];
+    let addr;
+    try { addr = decodeURIComponent(u.pathname); } catch { return false; } // '%' suelto
+    const m = /^[^\s@/?#]+@([^\s@/?#]+)$/.exec(addr);
+    host = m ? domainToASCII(m[1]) : ''; // dominios internacionales → punycode, como en https:
   } else return false;
   host = (host || '').toLowerCase().replace(/\.$/, '');
   const labels = host.split('.');

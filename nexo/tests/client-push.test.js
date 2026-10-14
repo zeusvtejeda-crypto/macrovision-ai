@@ -127,24 +127,52 @@ describe('cliente push', () => {
     expect(browser.sub.endpoint).not.toBe(old);
   });
 
-  it('rotación cuando el cron YA borró la fila vieja por 410: se registra la nueva (no se apaga)', async () => {
+  const markGone = () => store.push_subscriptions.forEach((r) => { r.gone_at = '2026-10-14T00:00:00Z'; });
+
+  it('rotación cuando el cron YA marcó la fila vieja como caducada (410): se registra la nueva (no se apaga)', async () => {
     await push.enablePush(db);
     browser.rotate();                       // el SW re-suscribió (pushsubscriptionchange)
-    store.push_subscriptions.length = 0;    // el cron recibió 410 en el endpoint viejo y borró la fila
+    markGone();                             // el cron recibió 410 en el endpoint viejo
     push = await load();
     expect(await push.syncPush(db)).toBe(true);
     expect(store.push_subscriptions.map((r) => r.endpoint)).toEqual([browser.sub.endpoint]);
     expect(await push.syncPush(db)).toBe(true); // estable en la siguiente apertura
   });
 
-  it('el navegador perdió la suscripción y el servidor la limpió: se vuelve a suscribir', async () => {
+  it('el navegador perdió la suscripción y el servicio la dio por caducada: se vuelve a suscribir', async () => {
     await push.enablePush(db);
     browser.sub = null;
-    store.push_subscriptions.length = 0;
+    markGone();
     expect(await push.syncPush(db)).toBe(true);
     expect(browser.subscribeCalls).toBe(2);
-    expect(store.push_subscriptions).toHaveLength(1);
+    expect(store.push_subscriptions.filter((r) => !r.gone_at)).toHaveLength(1);
   });
+
+  it('el servicio dio por caducada la misma suscripción que tiene el navegador: se renueva', async () => {
+    await push.enablePush(db);
+    const old = browser.sub.endpoint;
+    markGone();
+    expect(await push.syncPush(db)).toBe(true);
+    expect(browser.sub.endpoint).not.toBe(old);
+    expect(store.push_subscriptions.map((r) => [r.endpoint, Boolean(r.gone_at)])).toEqual([[browser.sub.endpoint, false]]);
+  });
+
+  for (const [name, change] of [
+    ['rotó', (b) => b.rotate()],
+    ['se perdió', (b) => { b.sub = null; }],
+    ['cambiaron las claves VAPID', (b) => b.rotate(OTHER_KEY)],
+  ]) {
+    it(`quitado desde otro equipo y además la suscripción ${name}: NO se reactiva`, async () => {
+      await push.enablePush(db);
+      store.push_subscriptions.length = 0; // Quitar desde el Mac
+      change(browser);
+      push = await load();
+      expect(await push.syncPush(db)).toBe(false);
+      expect(store.push_subscriptions).toHaveLength(0);
+      expect(browser.sub).toBeNull();
+      expect(browser.subscribeCalls).toBe(1);
+    });
+  }
 
   it('cerrar sesión sin red igual cancela la suscripción local', async () => {
     await push.enablePush(db);

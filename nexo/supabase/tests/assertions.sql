@@ -153,8 +153,8 @@ update tasks set remind_at = now() - interval '2 hours' where title = 'reabrir';
 set role authenticated;
 select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
 update tasks set done = false, done_at = null where title = 'reabrir';
-select pg_temp.check((select reminder_status = 'expired' and reminded_at is not null from tasks where title = 'reabrir'),
-  'desmarcar una tarea con aviso vencido no lo dispara (queda expirado)');
+select pg_temp.check((select reminder_status = 'missed' and reminded_at is not null from tasks where title = 'reabrir'),
+  'desmarcar una tarea con aviso vencido no lo dispara (queda missed)');
 reset role;
 
 insert into auth.users values ('00000000-0000-0000-0000-00000000000c');
@@ -187,5 +187,32 @@ set role service_role;
 select pg_temp.check((select count(*) from public.claim_due_reminders(100) where title = 'huerfana') = 0, 'reclamo huérfano no se reenvía');
 reset role;
 select pg_temp.check((select reminder_status = 'unknown' from tasks where title = 'huerfana'), 'reclamo huérfano queda como desconocido');
+
+-- ---------- Suscripciones caducadas (gone_at) ----------
+set role authenticated;
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+select count(*) from (select public.register_push_subscription('https://fcm.googleapis.com/fcm/send/a-mac', :P256, :AUTH, 'Mac')) x \g /dev/null
+reset role;
+select id as amac from push_subscriptions where endpoint like '%a-mac' \gset
+set role authenticated;
+select set_config('request.jwt.claim.sub', :B, false) \g /dev/null
+-- B intenta marcar como caducado el Mac de A pasando su id
+select public.mark_push_gone(array[:'amac']::uuid[]) \g /dev/null
+reset role;
+select pg_temp.check((select gone_at is null from push_subscriptions where endpoint like '%a-mac'), 'mark_push_gone no toca dispositivos de otros');
+update push_subscriptions set gone_at = now() where endpoint like '%a-mac';
+set role authenticated;
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+select count(*) from (select public.register_push_subscription('https://fcm.googleapis.com/fcm/send/a-mac', :P256, :AUTH, 'Mac')) x \g /dev/null
+select pg_temp.check((select gone_at is null from push_subscriptions where endpoint like '%a-mac'), 're-registrar limpia gone_at');
+reset role;
+update push_subscriptions set gone_at = now() - interval '31 days' where endpoint like '%a-mac';
+set role service_role;
+select count(*) from public.claim_due_reminders(1) \g /dev/null
+reset role;
+select pg_temp.check((select count(*) from push_subscriptions where endpoint like '%a-mac') = 0, 'caducadas de más de 30 días se borran');
+
+-- ---------- Desmarcar: estado 'missed' (no 'expired') ----------
+select pg_temp.check((select reminder_status from tasks where title = 'reabrir') = 'missed', 'desmarcar tarde → missed');
 
 \echo TODAS LAS PRUEBAS SQL PASARON

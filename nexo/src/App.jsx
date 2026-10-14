@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase, configured } from './supabase.js';
 import { mxn, fmtDue, localToday, REMINDER_PRESETS, computeRemindAt, fmtInstant } from './format.js';
-import { pushStatus, enablePush, syncPush, disablePush, sendTestPush, thisDeviceEndpoint, isIOS, PUSH_EVENT, PUSH_STORAGE_KEY } from './push.js';
+import { pushStatus, enablePush, syncPush, disablePush, sendTestPush, thisDeviceEndpoint, storedEndpoint, isIOS, PUSH_EVENT, PUSH_STORAGE_KEY } from './push.js';
 
 const TABS = [
   ['chat', 'Chat', '💬'],
@@ -401,7 +401,7 @@ function PushCard() {
   const refresh = useCallback(async () => {
     setStatus(pushStatus());
     const [{ data }, endpoint] = await Promise.all([
-      supabase.from('push_subscriptions').select('id,endpoint,user_agent,created_at').order('created_at', { ascending: false }),
+      supabase.from('push_subscriptions').select('id,endpoint,user_agent,created_at').is('gone_at', null).order('created_at', { ascending: false }),
       thisDeviceEndpoint().catch(() => null),
     ]);
     setDevices(data || []);
@@ -439,7 +439,8 @@ function PushCard() {
   });
   const disable = () => run(() => disablePush(supabase));
   const removeDevice = (d) => run(async () => {
-    if (d.endpoint === (await thisDeviceEndpoint().catch(() => null))) return disablePush(supabase);
+    const here = await thisDeviceEndpoint().catch(() => null);
+    if (d.endpoint === here || d.endpoint === storedEndpoint()) return disablePush(supabase);
     const { error } = await supabase.from('push_subscriptions').delete().eq('id', d.id);
     if (error) throw error;
   });
@@ -498,9 +499,10 @@ const REMINDER_LABELS = {
   rejected: ['⚠️', 'No se entregó: el servicio push lo rechazó'],
   failed: ['⚠️', 'No se entregó: el servicio push falló'],
   expired: ['⌛', 'No se envió: venció hace más de 12 h'],
-  unknown: ['❔', 'Estado desconocido: el envío se interrumpió'],
+  missed: ['⌛', 'No se envió: la tarea estaba completada a la hora del aviso'],
+  unknown: ['❔', 'Estado desconocido: pudo no haber llegado'],
 };
-const RETRYABLE = new Set(['no_devices', 'rejected', 'failed', 'expired', 'unknown']);
+const RETRYABLE = new Set(['no_devices', 'rejected', 'failed', 'expired', 'missed', 'unknown']);
 function ReminderBadge({ task }) {
   let icon, label;
   if (!task.reminded_at && task.done) [icon, label] = ['🔕', 'Sin aviso: tarea completada'];

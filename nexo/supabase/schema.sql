@@ -89,10 +89,15 @@ end $$;
 alter table public.tasks add column if not exists remind_at timestamptz;
 alter table public.tasks add column if not exists reminded_at timestamptz;
 alter table public.tasks add column if not exists remind_attempts int not null default 0;
--- Resultado del envío: sent | no_devices | rejected | failed | expired | unknown (lo escribe solo el servidor).
-alter table public.tasks add column if not exists reminder_status text;
--- Migración: avisos ya enviados por la versión anterior (sin columna de estado) cuentan como enviados.
-update public.tasks set reminder_status = 'sent' where reminded_at is not null and reminder_status is null;
+-- Resultado del envío: sent | no_devices | rejected | failed | expired | missed | unknown (lo escribe solo el servidor).
+-- Migración (una sola vez, al crear la columna): la versión anterior no guardaba si el aviso llegó → 'unknown'.
+do $$ begin
+  if not exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'tasks' and column_name = 'reminder_status') then
+    alter table public.tasks add column reminder_status text;
+    update public.tasks set reminder_status = 'unknown' where reminded_at is not null;
+  end if;
+end $$;
 create index if not exists tasks_pending_reminders on public.tasks (remind_at)
   where remind_at is not null and reminded_at is null and done = false;
 
@@ -120,7 +125,7 @@ create trigger tasks_rearm_reminder before update of remind_at on public.tasks
 
 -- Avisos de usuarios: no en el pasado (>5 min) y máximo 200 pendientes por cuenta.
 -- También al desmarcar una tarea completada (vuelve a quedar pendiente): un aviso ya vencido
--- se marca 'expired' en lugar de dispararse, para que el checkbox siga funcionando.
+-- se marca 'missed' en lugar de dispararse, para que el checkbox siga funcionando.
 create or replace function public.tasks_validate_reminder() returns trigger
 language plpgsql set search_path = public as $$
 declare
@@ -134,7 +139,7 @@ begin
   if new.remind_at < now() - interval '5 minutes' then
     if rescheduled then raise exception 'La hora del aviso ya pasó' using errcode = '22023'; end if;
     new.reminded_at := now();
-    new.reminder_status := 'expired';
+    new.reminder_status := 'missed'; -- la tarea estaba completada a la hora del aviso
     return new;
   end if;
   -- Serializa por usuario para que inserciones concurrentes no se salten el tope.
@@ -167,6 +172,9 @@ create table if not exists public.push_subscriptions (
   created_at timestamptz not null default now(),
   last_success_at timestamptz
 );
+-- El servicio push respondió 404/410: no se envía más, pero la fila queda (30 días) para que la app
+-- distinga "caducó/rotó" (re-registrar) de "el usuario la quitó" (respetar).
+alter table public.push_subscriptions add column if not exists gone_at timestamptz;
 create index if not exists push_subs_user on public.push_subscriptions (user_id);
 
 -- El usuario ve y borra sus dispositivos; el alta pasa por register_push_subscription().
@@ -197,7 +205,7 @@ begin
   insert into public.push_subscriptions (user_id, endpoint, p256dh, auth, user_agent)
   values (uid, p_endpoint, p_p256dh, p_auth, left(p_user_agent, 300))
   on conflict (endpoint) do update
-    set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth,
+    set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, gone_at = null,
         user_agent = excluded.user_agent, created_at = case when push_subscriptions.user_id = excluded.user_id then push_subscriptions.created_at else now() end
   returning id into sub_id;
 
@@ -210,6 +218,14 @@ begin
 end $$;
 revoke all on function public.register_push_subscription(text, text, text, text) from public, anon;
 grant execute on function public.register_push_subscription(text, text, text, text) to authenticated;
+
+-- /api/push/test (con el JWT del usuario) marca como caducadas sus propias suscripciones (404/410).
+create or replace function public.mark_push_gone(p_ids uuid[]) returns void
+language sql security definer set search_path = public as $$
+  update public.push_subscriptions set gone_at = now() where id = any(p_ids) and user_id = auth.uid();
+$$;
+revoke all on function public.mark_push_gone(uuid[]) from public, anon;
+grant execute on function public.mark_push_gone(uuid[]) to authenticated;
 
 -- Reclama avisos vencidos de forma atómica (skip locked: dos crons simultáneos no duplican).
 -- Justo por usuario: máx. 5 por cuenta y ejecución, para que nadie acapare la cola.
@@ -227,6 +243,8 @@ language sql security invoker set search_path = public as $$
   update public.tasks
      set reminder_status = 'unknown'
    where reminder_status is null and reminded_at < now() - interval '10 minutes';
+
+  delete from public.push_subscriptions where gone_at < now() - interval '30 days';
 
   with ranked as (
     select id, remind_at, row_number() over (partition by user_id order by remind_at) as rn

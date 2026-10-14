@@ -18,6 +18,7 @@ export function fakeDb(store = {}, userId = 'u1', { rpc = {}, admin = false } = 
         delete() { st.op = 'delete'; return q; },
         eq(c, v) { st.filters.push((r) => r[c] === v); return q; },
         in(c, vs) { st.filters.push((r) => vs.includes(r[c])); return q; },
+        is(c, v) { st.filters.push((r) => (v === null ? r[c] == null : r[c] === v)); return q; },
         gte(c, v) { st.filters.push((r) => r[c] != null && r[c] >= v); return q; },
         lte(c, v) { st.filters.push((r) => r[c] != null && r[c] <= v); return q; },
         or(expr) {

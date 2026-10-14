@@ -46,12 +46,13 @@ describe('vapidFromEnv', () => {
   it('rechaza sujetos que Apple no acepta', () => {
     expect(vapidFromEnv({ ...base, VAPID_SUBJECT: 'https://nexo.vercel.app' })).not.toBeNull();
     for (const ok of ['mailto:nombre@gmail.com', 'mailto:nombre.apellido+nexo@icloud.com', 'https://nexo-yo.vercel.app',
-      'https://midominio.mx/contacto', ' mailto:yo@ejemplo.com\n']) {
+      'https://midominio.mx/contacto', ' mailto:yo@ejemplo.com\n', 'mailto:yo@münchen.de', 'https://münchen.de']) {
       expect(vapidFromEnv({ ...base, VAPID_SUBJECT: ok }), ok).not.toBeNull();
     }
     for (const bad of ['mailto: yo@ejemplo.com', 'mailto:yo@localhost', 'mailto:yo@mac.local', 'https://localhost:3000',
       'https://127.0.0.1', 'https://127.0.0.1.', 'mailto:tu-correo@example.com', 'http://nexo.app', 'yo@ejemplo.com',
-      'mailto:yo@ejemplo', 'https://nexo.app:99999', 'mailto:a@gmail..com', 'https://.com', 'https://u:p@nexo.app']) {
+      'mailto:yo@ejemplo', 'https://nexo.app:99999', 'mailto:a@gmail..com', 'https://.com', 'https://u:p@nexo.app',
+      'mailto:yo%gmail.com', 'mailto:100%@gmail.com']) {
       expect(vapidFromEnv({ ...base, VAPID_SUBJECT: bad }), bad).toBeNull();
     }
   });
@@ -181,7 +182,7 @@ describe('Web Push real (servidor HTTPS local)', () => {
     expect(store.tasks[0].reminder_status).toBe('sent');
     expect(received.map((r) => r.url).sort()).toEqual(['/push/a1', '/push/gone-a2']); // B no recibe nada
     expect(decrypt(received.find((r) => r.url === '/push/a1'), a1)).toMatchObject({ title: '⏰ Dentista', tag: 'task-tA' });
-    expect(store.push_subscriptions.map((s) => s.id)).toEqual(['sa1', 'sb1']);
+    expect(store.push_subscriptions.map((s) => [s.id, Boolean(s.gone_at)])).toEqual([['sa1', false], ['sa2', true], ['sb1', false]]);
     expect(store.push_subscriptions[0].last_success_at).toBeTruthy();
   });
 });

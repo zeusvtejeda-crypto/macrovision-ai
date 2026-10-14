@@ -11,6 +11,7 @@ const changed = () => window.dispatchEvent(new Event(PUSH_EVENT));
 function stored() {
   try { return localStorage.getItem(LS_KEY); } catch { return null; }
 }
+export const storedEndpoint = stored;
 function setStored(endpoint) {
   try { endpoint ? localStorage.setItem(LS_KEY, endpoint) : localStorage.removeItem(LS_KEY); } catch {}
 }
@@ -82,10 +83,11 @@ async function save(supabase, sub) {
   if (error) throw new Error(error.message === 'invalid push endpoint' ? 'Este navegador usa un servicio push no compatible.' : error.message);
 }
 
-async function serverHas(supabase, endpoint) {
-  const { data, error } = await supabase.from('push_subscriptions').select('id').eq('endpoint', endpoint).maybeSingle();
+// null = no existe (el usuario la quitó) · { gone } = existe; gone si el servicio push la dio por caducada.
+async function serverRow(supabase, endpoint) {
+  const { data, error } = await supabase.from('push_subscriptions').select('id,gone_at').eq('endpoint', endpoint).maybeSingle();
   if (error) throw new Error(error.message);
-  return Boolean(data);
+  return data ? { gone: Boolean(data.gone_at) } : null;
 }
 
 async function removeRow(supabase, endpoint) {
@@ -119,21 +121,24 @@ export async function syncPush(supabase) {
     let mine = stored();
 
     // Activado con una versión anterior (sin marca local): se adopta si el servidor lo tiene.
-    if (!mine && sub && (await serverHas(supabase, sub.endpoint))) { setStored(sub.endpoint); mine = sub.endpoint; }
+    if (!mine && sub) {
+      const legacy = await serverRow(supabase, sub.endpoint);
+      if (legacy && !legacy.gone) { setStored(sub.endpoint); mine = sub.endpoint; }
+    }
     if (!mine) return false; // el usuario no activó avisos en este dispositivo
 
-    if (sub && sub.endpoint === mine && sameKey(sub)) {
-      if (await serverHas(supabase, mine)) return true;
-      // Misma suscripción pero ya no está en el servidor: se quitó desde otro dispositivo
-      // (o el servicio push la dio por muerta). Respetarlo.
-      await sub.unsubscribe().catch(() => {});
+    const row = await serverRow(supabase, mine);
+    if (!row) {
+      // La fila ya no existe: se quitó desde la lista de dispositivos (aquí o en otro equipo). Respetarlo.
+      await sub?.unsubscribe().catch(() => {});
       setStored(null);
       return false;
     }
-    // La suscripción cambió sin que el usuario la desactivara aquí (Desactivar borra la marca):
-    // el navegador la rotó o la perdió, o cambiaron las claves VAPID. Se reemplaza, aunque el
-    // servidor ya haya borrado la vieja por un 410.
-    if (sub && !sameKey(sub)) { await sub.unsubscribe(); sub = null; }
+    if (!row.gone && sub && sub.endpoint === mine && sameKey(sub)) return true; // todo en orden
+
+    // Sigue queriéndose pero la suscripción ya no sirve: el navegador la rotó o la perdió, el servicio
+    // push la dio por caducada (gone) o cambiaron las claves VAPID. Se reemplaza.
+    if (sub && (!sameKey(sub) || (row.gone && sub.endpoint === mine))) { await sub.unsubscribe(); sub = null; }
     if (!sub) sub = await subscribe(reg);
     await save(supabase, sub);
     if (sub.endpoint !== mine) await removeRow(supabase, mine).catch(() => {});

@@ -34,14 +34,16 @@ describe('/api/push/test', () => {
 
   it('envía solo a los dispositivos del usuario y limpia los caducados', async () => {
     const store = { push_subscriptions: [sub('a1', 'A', 'ok'), sub('a2', 'A', 'gone'), sub('b1', 'B', 'otro')] };
-    state.db = fakeDb(store, 'A');
+    state.db = fakeDb(store, 'A', { rpc: { mark_push_gone: ({ p_ids }, st) => {
+      st.push_subscriptions.filter((x) => p_ids.includes(x.id) && x.user_id === 'A').forEach((x) => { x.gone_at = 'now'; });
+    } } });
     const r = res();
     await handler({ method: 'POST', headers: { authorization: 'Bearer t' } }, r);
     expect(r.statusCode).toBe(200);
     expect(r.body).toEqual({ total: 2, delivered: 1, removed: 1, failed: 0 });
     expect(state.sent.map((s) => s.endpoint.split('/').pop()).sort()).toEqual(['gone', 'ok']);
     expect(state.sent[0].body).toMatchObject({ title: '✅ NEXO', tag: 'nexo-test' });
-    expect(store.push_subscriptions.map((s) => s.id)).toEqual(['a1', 'b1']);
+    expect(store.push_subscriptions.filter((s) => s.gone_at).map((s) => s.id)).toEqual(['a2']);
   });
 
   it('409 si no hay dispositivos', async () => {

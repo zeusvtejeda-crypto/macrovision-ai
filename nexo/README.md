@@ -64,13 +64,13 @@ Una fecha límite **no** avisa: el aviso es el campo *Aviso* (formulario) o “r
 
 Detalles:
 - Precisión: ±1 min. Si el servicio de push falla (5xx), reintenta cada minuto hasta 5 veces.
-- Estado en cada tarea: 🔔 programado · ✅ enviado · ⚠️ no entregado (p. ej. ningún dispositivo tenía avisos activos) · ⌛ no enviado por llevar >12 h de retraso (cron caído o tarea desmarcada) · ❔ envío interrumpido · 🔕 tarea completada. En los casos fallidos aparece **Reintentar** (o pídeselo al chat: “recuérdame … a las HH:MM”).
+- Estado en cada tarea: 🔔 programado · ✅ enviado · ⚠️ no entregado (p. ej. ningún dispositivo tenía avisos activos) · ⌛ no enviado (>12 h de retraso, o la tarea estaba completada a esa hora) · ❔ desconocido (envío interrumpido, o enviado por una versión anterior) · 🔕 tarea completada. En los casos fallidos aparece **Reintentar** (o pídeselo al chat: “recuérdame … a las HH:MM”).
 - Si un aviso sale con ≥10 min de retraso, la notificación lo indica.
 - “Desactivar” o “Quitar” un dispositivo se respeta: NEXO no vuelve a suscribirlo solo al abrirse.
 - Cerrar sesión (solo en ese dispositivo) desactiva sus avisos.
 - Límites anti-abuso: máx. 10 dispositivos y 200 avisos pendientes por cuenta; el cron atiende por turnos (máx. 5 avisos por cuenta y minuto). La protección principal sigue siendo desactivar el registro de cuentas nuevas (paso 1.3).
 - Si el endpoint del cron responde 500, el mensaje dice qué variable falta o está mal (`net._http_response.content`).
-- Los dispositivos caducados (iOS borró la app, permisos revocados) se limpian solos.
+- Los dispositivos caducados (iOS borró la app, permisos revocados) dejan de recibir y se borran a los 30 días; si solo fue una renovación de la suscripción, NEXO la re-registra al abrirse.
 
 ## 5. Instalar
 - **iPhone/iPad:** Safari → Compartir → *Añadir a pantalla de inicio*.
@@ -81,7 +81,7 @@ Detalles:
 cp .env.example .env.local   # llena tus claves
 npm install
 npx vercel dev               # UI + /api/chat (npm run dev solo sirve la UI)
-npm test                     # 74 tests (vitest): herramientas, agente, endpoints, zona horaria/DST, push (servidor y cliente)
+npm test                     # 78 tests (vitest): herramientas, agente, endpoints, zona horaria/DST, push (servidor y cliente)
 npm run test:sql             # RLS, avisos y suscripciones contra Postgres local (si tienes PostgreSQL)
 npm run build
 # Prueba de humo en Chromium (service worker → notificación) — requiere Playwright:
