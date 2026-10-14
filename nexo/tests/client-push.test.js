@@ -127,6 +127,36 @@ describe('cliente push', () => {
     expect(browser.sub.endpoint).not.toBe(old);
   });
 
+  it('rotación cuando el cron YA borró la fila vieja por 410: se registra la nueva (no se apaga)', async () => {
+    await push.enablePush(db);
+    browser.rotate();                       // el SW re-suscribió (pushsubscriptionchange)
+    store.push_subscriptions.length = 0;    // el cron recibió 410 en el endpoint viejo y borró la fila
+    push = await load();
+    expect(await push.syncPush(db)).toBe(true);
+    expect(store.push_subscriptions.map((r) => r.endpoint)).toEqual([browser.sub.endpoint]);
+    expect(await push.syncPush(db)).toBe(true); // estable en la siguiente apertura
+  });
+
+  it('el navegador perdió la suscripción y el servidor la limpió: se vuelve a suscribir', async () => {
+    await push.enablePush(db);
+    browser.sub = null;
+    store.push_subscriptions.length = 0;
+    expect(await push.syncPush(db)).toBe(true);
+    expect(browser.subscribeCalls).toBe(2);
+    expect(store.push_subscriptions).toHaveLength(1);
+  });
+
+  it('cerrar sesión sin red igual cancela la suscripción local', async () => {
+    await push.enablePush(db);
+    const offline = fakeSupabase(store);
+    const from = offline.from.bind(offline);
+    offline.from = (t) => { const q = from(t); q.delete = () => ({ eq: async () => ({ error: { message: 'Failed to fetch' } }) }); return q; };
+    await expect(push.disablePush(offline)).rejects.toThrow('Failed to fetch');
+    expect(browser.sub).toBeNull();
+    push = await load();
+    expect(await push.syncPush(db)).toBe(false); // y no se reactiva al reabrir
+  });
+
   it('si cambiaron las claves VAPID, se vuelve a suscribir con la nueva', async () => {
     await push.enablePush(db);
     browser.rotate(OTHER_KEY); // suscripción con clave vieja

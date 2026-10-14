@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase, configured } from './supabase.js';
 import { mxn, fmtDue, localToday, REMINDER_PRESETS, computeRemindAt, fmtInstant } from './format.js';
-import { pushStatus, enablePush, syncPush, disablePush, sendTestPush, thisDeviceEndpoint, isIOS, PUSH_EVENT } from './push.js';
+import { pushStatus, enablePush, syncPush, disablePush, sendTestPush, thisDeviceEndpoint, isIOS, PUSH_EVENT, PUSH_STORAGE_KEY } from './push.js';
 
 const TABS = [
   ['chat', 'Chat', '💬'],
@@ -411,9 +411,17 @@ function PushCard() {
   useEffect(() => {
     refresh();
     const onVis = () => document.visibilityState === 'visible' && refresh();
+    const onStorage = (e) => e.key === PUSH_STORAGE_KEY && refresh(); // cambios hechos en otra ventana
     window.addEventListener(PUSH_EVENT, refresh);
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', onVis);
-    return () => { window.removeEventListener(PUSH_EVENT, refresh); document.removeEventListener('visibilitychange', onVis); };
+    return () => {
+      window.removeEventListener(PUSH_EVENT, refresh);
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [refresh]);
 
   async function run(fn) {
@@ -490,10 +498,22 @@ const REMINDER_LABELS = {
   rejected: ['⚠️', 'No se entregó: el servicio push lo rechazó'],
   failed: ['⚠️', 'No se entregó: el servicio push falló'],
   expired: ['⌛', 'No se envió: venció hace más de 12 h'],
+  unknown: ['❔', 'Estado desconocido: el envío se interrumpió'],
 };
+const RETRYABLE = new Set(['no_devices', 'rejected', 'failed', 'expired', 'unknown']);
 function ReminderBadge({ task }) {
-  const [icon, label] = !task.reminded_at ? ['🔔', 'Aviso programado'] : REMINDER_LABELS[task.reminder_status] || ['⏳', 'Enviando aviso'];
-  return <span className="bell" title={label} aria-label={label}> · {icon} {fmtInstant(task.remind_at)}</span>;
+  let icon, label;
+  if (!task.reminded_at && task.done) [icon, label] = ['🔕', 'Sin aviso: tarea completada'];
+  else if (!task.reminded_at) [icon, label] = ['🔔', 'Aviso programado'];
+  else [icon, label] = REMINDER_LABELS[task.reminder_status] || ['⏳', 'Enviando aviso'];
+  // Reintentar = reprogramar a "ahora": el trigger re-arma el aviso y el cron lo envía en ≤1 min.
+  const retry = () => exec(supabase.from('tasks').update({ remind_at: new Date().toISOString() }).eq('id', task.id));
+  return (
+    <span className="bell" title={label} aria-label={label}>
+      {' '}· {icon} {fmtInstant(task.remind_at)}
+      {!task.done && RETRYABLE.has(task.reminder_status) && <button className="link small" onClick={retry}>Reintentar</button>}
+    </span>
+  );
 }
 
 function deviceName(ua = '') {

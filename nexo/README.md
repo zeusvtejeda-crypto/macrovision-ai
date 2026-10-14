@@ -49,7 +49,9 @@ iPhone/iPad/iMac (PWA, React) ──► Supabase (Auth + Postgres + RLS + Realti
 ## 4. Avisos push (recordatorios reales)
 Una fecha límite **no** avisa: el aviso es el campo *Aviso* (formulario) o “recuérdame…” en el chat.
 
-1. En tu Mac, dentro de `nexo/`: `npm install` y luego `npm run secrets` → imprime `VITE_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `CRON_SECRET`. Cambia el correo del `VAPID_SUBJECT` por el tuyo.
+1. Genera las claves. Opción A (sin clonar nada; requiere Node.js 20+ → nodejs.org o `brew install node`):
+   `npx -y web-push generate-vapid-keys` (pública y privada) y `openssl rand -base64 32` (para `CRON_SECRET`); `VAPID_SUBJECT=mailto:tu@correo.com`.
+   Opción B (con el repo clonado: `git clone <tu repo>` → `cd <repo>/nexo`): `npm install` y luego `npm run secrets` → imprime `VITE_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `CRON_SECRET`. Cambia el correo del `VAPID_SUBJECT` por el tuyo.
 2. Vercel → Environment Variables: esas 4 + `SUPABASE_SERVICE_ROLE_KEY` (Supabase → Settings → API; **solo servidor**). Redeploy.
 3. Supabase → SQL Editor: vuelve a ejecutar `supabase/schema.sql` (es idempotente; agrega tablas de avisos). Hazlo **antes** del redeploy del paso 2 si NEXO ya estaba en producción.
 4. Supabase → SQL Editor: sigue `supabase/cron.sql` (activa `pg_cron`/`pg_net`, guarda en Vault la URL `https://<dominio de producción>/api/cron/reminders` y el `CRON_SECRET`, programa el job cada minuto y una limpieza diaria del historial).
@@ -62,11 +64,12 @@ Una fecha límite **no** avisa: el aviso es el campo *Aviso* (formulario) o “r
 
 Detalles:
 - Precisión: ±1 min. Si el servicio de push falla (5xx), reintenta cada minuto hasta 5 veces.
-- Estado en cada tarea: 🔔 programado · ✅ enviado · ⚠️ no entregado (p. ej. ningún dispositivo tenía avisos activos) · ⌛ no enviado por llevar >12 h de retraso (cron caído o tarea desmarcada). Para reintentar, cambia la hora del aviso.
+- Estado en cada tarea: 🔔 programado · ✅ enviado · ⚠️ no entregado (p. ej. ningún dispositivo tenía avisos activos) · ⌛ no enviado por llevar >12 h de retraso (cron caído o tarea desmarcada) · ❔ envío interrumpido · 🔕 tarea completada. En los casos fallidos aparece **Reintentar** (o pídeselo al chat: “recuérdame … a las HH:MM”).
 - Si un aviso sale con ≥10 min de retraso, la notificación lo indica.
 - “Desactivar” o “Quitar” un dispositivo se respeta: NEXO no vuelve a suscribirlo solo al abrirse.
 - Cerrar sesión (solo en ese dispositivo) desactiva sus avisos.
-- Límites anti-abuso: máx. 10 dispositivos y 200 avisos pendientes por cuenta; el cron atiende máx. 5 avisos por cuenta y minuto.
+- Límites anti-abuso: máx. 10 dispositivos y 200 avisos pendientes por cuenta; el cron atiende por turnos (máx. 5 avisos por cuenta y minuto). La protección principal sigue siendo desactivar el registro de cuentas nuevas (paso 1.3).
+- Si el endpoint del cron responde 500, el mensaje dice qué variable falta o está mal (`net._http_response.content`).
 - Los dispositivos caducados (iOS borró la app, permisos revocados) se limpian solos.
 
 ## 5. Instalar
@@ -78,7 +81,7 @@ Detalles:
 cp .env.example .env.local   # llena tus claves
 npm install
 npx vercel dev               # UI + /api/chat (npm run dev solo sirve la UI)
-npm test                     # 69 tests (vitest): herramientas, agente, endpoints, zona horaria/DST, push (servidor y cliente)
+npm test                     # 74 tests (vitest): herramientas, agente, endpoints, zona horaria/DST, push (servidor y cliente)
 npm run test:sql             # RLS, avisos y suscripciones contra Postgres local (si tienes PostgreSQL)
 npm run build
 # Prueba de humo en Chromium (service worker → notificación) — requiere Playwright:

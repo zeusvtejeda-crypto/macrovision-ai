@@ -18,7 +18,8 @@ export async function userClient(req, env = process.env) {
 
 // Cliente service_role (salta RLS). SOLO para tareas de servidor como el cron.
 export function adminClient(env = process.env) {
-  const { VITE_SUPABASE_URL: url, SUPABASE_SERVICE_ROLE_KEY: key } = env;
+  const url = env.VITE_SUPABASE_URL?.trim();
+  const key = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!url || !key) return null;
   return createClient(url, key, { auth: NO_SESSION });
 }

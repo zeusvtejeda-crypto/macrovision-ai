@@ -89,8 +89,10 @@ end $$;
 alter table public.tasks add column if not exists remind_at timestamptz;
 alter table public.tasks add column if not exists reminded_at timestamptz;
 alter table public.tasks add column if not exists remind_attempts int not null default 0;
--- Resultado del envío: sent | no_devices | rejected | failed | expired (lo escribe solo el servidor).
+-- Resultado del envío: sent | no_devices | rejected | failed | expired | unknown (lo escribe solo el servidor).
 alter table public.tasks add column if not exists reminder_status text;
+-- Migración: avisos ya enviados por la versión anterior (sin columna de estado) cuentan como enviados.
+update public.tasks set reminder_status = 'sent' where reminded_at is not null and reminder_status is null;
 create index if not exists tasks_pending_reminders on public.tasks (remind_at)
   where remind_at is not null and reminded_at is null and done = false;
 
@@ -117,14 +119,26 @@ create trigger tasks_rearm_reminder before update of remind_at on public.tasks
   for each row execute function public.tasks_rearm_reminder();
 
 -- Avisos de usuarios: no en el pasado (>5 min) y máximo 200 pendientes por cuenta.
+-- También al desmarcar una tarea completada (vuelve a quedar pendiente): un aviso ya vencido
+-- se marca 'expired' en lugar de dispararse, para que el checkbox siga funcionando.
 create or replace function public.tasks_validate_reminder() returns trigger
 language plpgsql set search_path = public as $$
+declare
+  reopened boolean := tg_op = 'UPDATE' and old.done and not new.done;
+  rescheduled boolean := tg_op = 'INSERT' or new.remind_at is distinct from old.remind_at;
 begin
-  if current_user <> 'authenticated' or new.remind_at is null then return new; end if;
-  if tg_op = 'UPDATE' and new.remind_at is not distinct from old.remind_at then return new; end if;
-  if new.remind_at < now() - interval '5 minutes' then
-    raise exception 'La hora del aviso ya pasó' using errcode = '22023';
+  if current_user <> 'authenticated' or new.remind_at is null or new.done or new.reminded_at is not null then
+    return new;
   end if;
+  if not (reopened or rescheduled) then return new; end if;
+  if new.remind_at < now() - interval '5 minutes' then
+    if rescheduled then raise exception 'La hora del aviso ya pasó' using errcode = '22023'; end if;
+    new.reminded_at := now();
+    new.reminder_status := 'expired';
+    return new;
+  end if;
+  -- Serializa por usuario para que inserciones concurrentes no se salten el tope.
+  perform pg_advisory_xact_lock(hashtextextended('nexo_reminders:' || new.user_id::text, 0));
   if (select count(*) from public.tasks
       where user_id = new.user_id and remind_at is not null and reminded_at is null and done = false
         and id <> new.id) >= 200 then
@@ -133,7 +147,7 @@ begin
   return new;
 end $$;
 drop trigger if exists tasks_validate_reminder on public.tasks;
-create trigger tasks_validate_reminder before insert or update of remind_at on public.tasks
+create trigger tasks_validate_reminder before insert or update of remind_at, done on public.tasks
   for each row execute function public.tasks_validate_reminder();
 
 -- Solo servicios de push reales (debe coincidir con isPushEndpoint() en api/_lib/push.js).
@@ -199,7 +213,9 @@ grant execute on function public.register_push_subscription(text, text, text, te
 
 -- Reclama avisos vencidos de forma atómica (skip locked: dos crons simultáneos no duplican).
 -- Justo por usuario: máx. 5 por cuenta y ejecución, para que nadie acapare la cola.
--- Avisos con más de 12 h de retraso (cron caído, tarea desmarcada) se marcan 'expired' sin enviarse.
+-- Avisos con más de 12 h de retraso (cron caído) se marcan 'expired' sin enviarse.
+-- Reclamos sin resultado tras 10 min (la función se cayó a medio envío) quedan 'unknown': no se
+-- reenvían para no duplicar una notificación que quizá sí llegó.
 -- Solo service_role (servidor); se ejecuta con sus permisos (bypass RLS).
 create or replace function public.claim_due_reminders(max_rows int default 100)
 returns table (task_id uuid, user_id uuid, title text, due_at timestamp, remind_at timestamptz, attempts int)
@@ -207,6 +223,10 @@ language sql security invoker set search_path = public as $$
   update public.tasks
      set reminded_at = now(), reminder_status = 'expired'
    where remind_at < now() - interval '12 hours' and reminded_at is null and done = false;
+
+  update public.tasks
+     set reminder_status = 'unknown'
+   where reminder_status is null and reminded_at < now() - interval '10 minutes';
 
   with ranked as (
     select id, remind_at, row_number() over (partition by user_id order by remind_at) as rn
@@ -217,7 +237,7 @@ language sql security invoker set search_path = public as $$
       from public.tasks t
       join ranked r on r.id = t.id
      where r.rn <= 5 and t.reminded_at is null and t.done = false
-     order by r.remind_at
+     order by r.rn, r.remind_at  -- por turnos: el primer aviso de cada cuenta va antes que el segundo de otra
      limit greatest(1, least(max_rows, 500))
        for update of t skip locked
   )

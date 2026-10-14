@@ -1,11 +1,12 @@
 // POST /api/push/test — envía una notificación de prueba a los dispositivos del usuario.
 import { userClient } from '../_lib/supabase.js';
-import { sendToSubscriptions, vapidFromEnv } from '../_lib/push.js';
+import { sendToSubscriptions, vapidFromEnv, vapidProblem } from '../_lib/push.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
+  const problem = vapidProblem();
+  if (problem) return res.status(500).json({ error: `Servidor mal configurado: ${problem}` });
   const vapid = vapidFromEnv();
-  if (!vapid) return res.status(500).json({ error: 'Servidor sin claves VAPID.' });
   const auth = await userClient(req);
   if (auth.error) return res.status(auth.status).json({ error: auth.error });
   const { db } = auth;

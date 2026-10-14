@@ -143,4 +143,49 @@ set role service_role;
 select pg_temp.check((select count(*) from public.claim_due_reminders(100) where title = 'muy vieja') = 0, 'aviso viejo no se envía');
 reset role;
 select pg_temp.check((select reminder_status = 'expired' and reminded_at is not null from tasks where title = 'muy vieja'), 'aviso viejo queda como expirado');
+-- ---------- Desmarcar tareas no salta los límites ----------
+set role authenticated;
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+insert into tasks (title, remind_at) values ('reabrir', now() + interval '1 hour');
+update tasks set done = true where title = 'reabrir';
+reset role;
+update tasks set remind_at = now() - interval '2 hours' where title = 'reabrir'; -- el aviso venció mientras estaba hecha
+set role authenticated;
+select set_config('request.jwt.claim.sub', :A, false) \g /dev/null
+update tasks set done = false, done_at = null where title = 'reabrir';
+select pg_temp.check((select reminder_status = 'expired' and reminded_at is not null from tasks where title = 'reabrir'),
+  'desmarcar una tarea con aviso vencido no lo dispara (queda expirado)');
+reset role;
+
+insert into auth.users values ('00000000-0000-0000-0000-00000000000c');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false) \g /dev/null
+insert into tasks (title, remind_at) select 'lote ' || g, now() + interval '1 day' from generate_series(1, 200) g;
+update tasks set done = true where title like 'lote %'; -- los "oculta" del conteo
+insert into tasks (title, remind_at) values ('extra', now() + interval '1 day');
+do $$ begin
+  update tasks set done = false where title like 'lote %';
+  raise exception 'FALLÓ: desmarcar permitió superar 200 pendientes';
+exception when sqlstate '54000' then raise notice 'ok: desmarcar respeta el tope de 200'; end $$;
+reset role;
+
+-- ---------- Cola por turnos: 21 cuentas con 5+ avisos cada una no retrasan a A ----------
+update tasks set reminded_at = now(), reminder_status = 'sent' where reminded_at is null; -- limpiar cola
+insert into auth.users select ('00000000-0000-0000-0000-0000000001' || lpad(g::text, 2, '0'))::uuid from generate_series(1, 21) g;
+insert into tasks (user_id, title, remind_at)
+  select ('00000000-0000-0000-0000-0000000001' || lpad(u::text, 2, '0'))::uuid, 'ola', now() - interval '4 minutes'
+  from generate_series(1, 21) u, generate_series(1, 10) n;
+insert into tasks (user_id, title, remind_at) values (:A::uuid, 'aviso de A', now() - interval '1 minute');
+set role service_role;
+select pg_temp.check((select count(*) from public.claim_due_reminders(100) where title = 'aviso de A') = 1,
+  'por turnos: el aviso de A sale en el primer ciclo aunque 21 cuentas tengan cola');
+reset role;
+
+-- ---------- Reclamos huérfanos (la función se cayó) → 'unknown', sin reenvío ----------
+insert into tasks (user_id, title, remind_at, reminded_at) values (:A::uuid, 'huerfana', now() - interval '20 minutes', now() - interval '15 minutes');
+set role service_role;
+select pg_temp.check((select count(*) from public.claim_due_reminders(100) where title = 'huerfana') = 0, 'reclamo huérfano no se reenvía');
+reset role;
+select pg_temp.check((select reminder_status = 'unknown' from tasks where title = 'huerfana'), 'reclamo huérfano queda como desconocido');
+
 \echo TODAS LAS PRUEBAS SQL PASARON

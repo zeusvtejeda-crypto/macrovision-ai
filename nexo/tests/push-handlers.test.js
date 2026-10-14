@@ -31,9 +31,21 @@ describe('/api/cron/reminders', () => {
     delete process.env.CRON_SECRET;
     expect((await call(cron, { method: 'POST', headers: { authorization: 'Bearer ' } })).statusCode).toBe(500);
   });
-  it('500 si faltan service role o VAPID', async () => {
+  it('500 con motivo si faltan service role o VAPID', async () => {
+    process.env.VAPID_SUBJECT = 'mailto:yo@localhost';
+    const r1 = await call(cron, { method: 'POST', headers: { authorization: 'Bearer s3cr3t' } });
+    expect(r1.statusCode).toBe(500);
+    expect(r1.body.error).toMatch(/VAPID_SUBJECT inválido/);
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-    expect((await call(cron, { method: 'POST', headers: { authorization: 'Bearer s3cr3t' } })).statusCode).toBe(500);
+    const r2 = await call(cron, { method: 'POST', headers: { authorization: 'Bearer s3cr3t' } });
+    expect(r2.body.error).toMatch(/SUPABASE_SERVICE_ROLE_KEY/);
+  });
+  it('tolera un salto de línea al final de CRON_SECRET', async () => {
+    process.env.CRON_SECRET = 's3cr3t\n';
+    process.env.VAPID_SUBJECT = 'mailto:yo@localhost'; // corta antes de tocar Supabase
+    const r = await call(cron, { method: 'POST', headers: { authorization: 'Bearer s3cr3t' } });
+    expect(r.statusCode).toBe(500);
+    expect(r.body.error).toMatch(/VAPID_SUBJECT/); // pasó la autenticación
   });
 });
 

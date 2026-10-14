@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import webpush from 'web-push';
 import ece from 'http_ece';
-import { isPushEndpoint, vapidFromEnv, sendToSubscriptions, reminderPayload, formatLocalStamp } from '../api/_lib/push.js';
+import { isPushEndpoint, vapidFromEnv, vapidProblem, sendToSubscriptions, reminderPayload, formatLocalStamp } from '../api/_lib/push.js';
 import { processDueReminders } from '../api/_lib/reminders.js';
 import { fakeDb } from './fakeDb.js';
 
@@ -45,10 +45,22 @@ describe('vapidFromEnv', () => {
 
   it('rechaza sujetos que Apple no acepta', () => {
     expect(vapidFromEnv({ ...base, VAPID_SUBJECT: 'https://nexo.vercel.app' })).not.toBeNull();
+    for (const ok of ['mailto:nombre@gmail.com', 'mailto:nombre.apellido+nexo@icloud.com', 'https://nexo-yo.vercel.app',
+      'https://midominio.mx/contacto', ' mailto:yo@ejemplo.com\n']) {
+      expect(vapidFromEnv({ ...base, VAPID_SUBJECT: ok }), ok).not.toBeNull();
+    }
     for (const bad of ['mailto: yo@ejemplo.com', 'mailto:yo@localhost', 'mailto:yo@mac.local', 'https://localhost:3000',
-      'https://127.0.0.1', 'mailto:tu-correo@example.com', 'http://nexo.app', 'yo@ejemplo.com', 'mailto:yo@ejemplo']) {
+      'https://127.0.0.1', 'https://127.0.0.1.', 'mailto:tu-correo@example.com', 'http://nexo.app', 'yo@ejemplo.com',
+      'mailto:yo@ejemplo', 'https://nexo.app:99999', 'mailto:a@gmail..com', 'https://.com', 'https://u:p@nexo.app']) {
       expect(vapidFromEnv({ ...base, VAPID_SUBJECT: bad }), bad).toBeNull();
     }
+  });
+
+  it('vapidProblem explica qué está mal', () => {
+    expect(vapidProblem(base)).toBeNull();
+    expect(vapidProblem({ ...base, VAPID_SUBJECT: 'mailto:yo@localhost' })).toMatch(/VAPID_SUBJECT inválido/);
+    expect(vapidProblem({ ...base, VAPID_PRIVATE_KEY: 'x' })).toMatch(/VAPID_PRIVATE_KEY/);
+    expect(vapidProblem({})).toMatch(/Faltan/);
   });
 });
 

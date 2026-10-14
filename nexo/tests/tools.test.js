@@ -119,6 +119,11 @@ describe('recordatorios en herramientas', () => {
     store.tasks[0].reminder_status = 'no_devices';
     const l2 = await executeTool('listar_tareas', { estado: 'todas' }, ctx(fakeDb(store)));
     expect(l2.tareas[0].aviso_estado).toMatch(/no entregado/);
+    store.tasks[0].reminder_status = 'unknown';
+    expect((await executeTool('listar_tareas', { estado: 'todas' }, ctx(fakeDb(store)))).tareas[0].aviso_estado).toMatch(/desconocido/);
+    Object.assign(store.tasks[0], { reminded_at: null, reminder_status: null });
+    const done = await executeTool('completar_tarea', { id: store.tasks[0].id }, ctx(fakeDb(store)));
+    expect(done.tarea.aviso_estado).toMatch(/completada/);
   });
 
   it('crear_tarea sin recordatorio no envía remind_at (compatible antes de migrar)', async () => {

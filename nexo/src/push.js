@@ -1,10 +1,11 @@
 // Web Push en el navegador: permisos, suscripción y registro en Supabase.
 // Regla: solo se suscribe cuando el usuario pulsa "Activar avisos". Al abrir la app (syncPush)
 // únicamente se mantiene lo que el usuario activó; nunca se reactiva algo que desactivó o quitó.
-const VAPID_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+const VAPID_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim();
 const LS_KEY = 'nexo-push-endpoint'; // endpoint que el usuario activó en este dispositivo
 
 export const PUSH_EVENT = 'nexo:push-changed';
+export const PUSH_STORAGE_KEY = LS_KEY; // otras ventanas escuchan el evento 'storage' de esta clave
 const changed = () => window.dispatchEvent(new Event(PUSH_EVENT));
 
 function stored() {
@@ -121,20 +122,17 @@ export async function syncPush(supabase) {
     if (!mine && sub && (await serverHas(supabase, sub.endpoint))) { setStored(sub.endpoint); mine = sub.endpoint; }
     if (!mine) return false; // el usuario no activó avisos en este dispositivo
 
-    const stillWanted = await serverHas(supabase, mine);
     if (sub && sub.endpoint === mine && sameKey(sub)) {
-      if (stillWanted) return true;
-      // Se quitó desde otro dispositivo o el servicio push la dio por caducada: respetarlo.
+      if (await serverHas(supabase, mine)) return true;
+      // Misma suscripción pero ya no está en el servidor: se quitó desde otro dispositivo
+      // (o el servicio push la dio por muerta). Respetarlo.
       await sub.unsubscribe().catch(() => {});
       setStored(null);
       return false;
     }
-    if (!stillWanted) { // ya no se quiere y además cambió: limpiar sin volver a suscribir
-      if (sub) await sub.unsubscribe().catch(() => {});
-      setStored(null);
-      return false;
-    }
-    // El navegador rotó la suscripción, la perdió o cambiaron las claves: reemplazarla.
+    // La suscripción cambió sin que el usuario la desactivara aquí (Desactivar borra la marca):
+    // el navegador la rotó o la perdió, o cambiaron las claves VAPID. Se reemplaza, aunque el
+    // servidor ya haya borrado la vieja por un 410.
     if (sub && !sameKey(sub)) { await sub.unsubscribe(); sub = null; }
     if (!sub) sub = await subscribe(reg);
     await save(supabase, sub);
@@ -155,16 +153,18 @@ export async function thisDeviceEndpoint() {
   return sub?.endpoint || null;
 }
 
-// Desactivar en este dispositivo (también al cerrar sesión).
+// Desactivar en este dispositivo (también al cerrar sesión). Aunque falle la red, la suscripción
+// local se cancela: el servidor recibirá 410 en el próximo envío y limpiará la fila.
 export async function disablePush(supabase) {
+  let sub = null;
   try {
     const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
-    const sub = await reg?.pushManager?.getSubscription();
+    sub = (await reg?.pushManager?.getSubscription()) || null;
     const endpoint = sub?.endpoint || stored();
     if (endpoint) await removeRow(supabase, endpoint);
-    if (sub) await sub.unsubscribe();
-    setStored(null);
   } finally {
+    await sub?.unsubscribe().catch(() => {});
+    setStored(null);
     changed();
   }
 }

@@ -18,3 +18,16 @@ PSQL=("${RUN[@]}" "$PGBIN/psql" -h "$DIR" -p 5499 -U postgres -v ON_ERROR_STOP=1
 "${PSQL[@]}" -d nexo -f "$DIR/schema.sql" >/dev/null 2>&1
 "${PSQL[@]}" -d nexo -f "$DIR/schema.sql" >/dev/null 2>&1   # idempotencia
 "${PSQL[@]}" -d nexo -f "$DIR/assertions.sql" 2>&1 | sed 's/^psql:[^ ]* NOTICE:  /  /'
+
+# Concurrencia: dos sesiones insertan 150 avisos cada una para el mismo usuario a la vez → el tope (200) se mantiene.
+D="'00000000-0000-0000-0000-00000000000d'"
+"${PSQL[@]}" -d nexo -c "insert into auth.users values ($D)" >/dev/null
+TX="set role authenticated; select set_config('request.jwt.claim.sub', $D, false); begin;
+insert into tasks (title, remind_at) select 'conc ' || g, now() + interval '1 day' from generate_series(1, 150) g;
+select pg_sleep(1); commit;"
+("${PSQL[@]}" -d nexo -c "$TX" >/dev/null 2>&1 || true) &
+sleep 0.3
+("${PSQL[@]}" -d nexo -c "$TX" >/dev/null 2>&1 || true) &
+wait
+N=$("${PSQL[@]}" -d nexo -c "select count(*) from tasks where user_id = $D and reminded_at is null and not done")
+if [ "$N" -le 200 ]; then echo "  ok: tope de 200 con inserciones concurrentes ($N pendientes)"; else echo "FALLÓ: inserciones concurrentes superaron el tope ($N)"; exit 1; fi

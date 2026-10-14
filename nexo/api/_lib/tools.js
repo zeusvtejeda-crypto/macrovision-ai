@@ -144,11 +144,14 @@ const REMINDER_STATES = {
   rejected: 'no entregado: el servicio push lo rechazó',
   failed: 'no entregado: el servicio push falló',
   expired: 'no enviado: venció hace más de 12 h',
+  unknown: 'desconocido: el envío se interrumpió',
 };
 function taskOut(t, tz) {
   if (!t) return t;
   const { remind_at, reminded_at, reminder_status, ...rest } = t;
-  const aviso_estado = !remind_at ? null : !reminded_at ? 'programado' : REMINDER_STATES[reminder_status] || 'enviando';
+  const aviso_estado = !remind_at ? null
+    : !reminded_at ? (t.done ? 'sin aviso: la tarea está completada' : 'programado')
+    : REMINDER_STATES[reminder_status] || 'enviando';
   return { ...rest, aviso: remind_at ? formatInZone(remind_at, tz) : null, aviso_estado };
 }
 

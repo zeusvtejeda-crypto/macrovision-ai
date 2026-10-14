@@ -83,3 +83,4 @@ button.ghost { background: none; border: 1px solid var(--line); color: var(--tex
 .devices { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 4px; }
 .devices li { display: flex; align-items: center; gap: 6px; }
 .bell { white-space: nowrap; }
+.bell button.link { padding: 0 0 0 6px; font-size: 13px; }
