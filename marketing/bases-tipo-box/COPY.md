@@ -49,3 +49,12 @@ Cuenta publicitaria: 517078762226136 (MXN). Objetivo: ventas por WhatsApp.
 | A11 | 1–5 (multi) | P1–P5 | H1–H5 |
 
 CTA en todos: **Enviar mensaje de WhatsApp**.
+
+## Hashes de imagen en la cuenta 517078762226136
+| Imagen | Hash |
+|--------|------|
+| 01 | 588309f71c497f4e3fa8db90c3129dfc |
+| 02 | 17c19b1ab807283235f6bee3fb10b7fc |
+| 03 | 230cd9091670bc6e78153dc4493663e6 |
+| 04 | 4e1d2eab1313bdfbf99ca1129edceb1e |
+| 05 | 5a87f423d9f7e6fb76552bad89283610 |
