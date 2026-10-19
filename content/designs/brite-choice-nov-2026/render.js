@@ -146,7 +146,7 @@ designs['14_dia_mundial_diabetes'] = [
 
 // 16 Urgencia seguro
 designs['16_quedan_6_semanas'] = [
- wrap(`<div class="content">${big('⏳',' font-size:220px')}<h1>Quedan <span class="s">6 semanas</span><br>para usar tu seguro dental</h1><div class="sub">El 31 de diciembre tus beneficios se reinician. Lo que no uses, se pierde.</div><div class="list" style="margin-top:40px">${row('🛡️','Medicare · Denti-Cal · PPO')}${row('⚡','Citas el mismo día')}</div><div class="btn flow">Agenda tu cita →</div></div>`+foot('britechoicedental.com', PH)),
+ wrap(`<div class="content">${big('⏳',' font-size:150px;margin:0 0 10px')}<h1 style="font-size:72px">Quedan <span class="s">6 semanas</span><br>para usar tu seguro dental</h1><div class="sub" style="font-size:28px">El 31 de diciembre tus beneficios se reinician. Lo que no uses, se pierde.</div><div class="list" style="margin-top:24px">${row('🛡️','Medicare · Denti-Cal · PPO')}${row('⚡','Citas el mismo día')}</div><div class="btn flow">Agenda tu cita →</div></div>`+foot('britechoicedental.com', PH)),
 ];
 
 // 18 Carrusel niños
