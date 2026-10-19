@@ -46,3 +46,13 @@
 - Feed: 1080×1350 · Reels: 1080×1920, 15–30 s, subtítulos ES+EN · Carrusel: 5–7 slides, última slide = CTA
 - Marca: logo arriba, rojo/azul, mascota mono en posts humor
 - Pendientes del cliente: precio Black Friday, nombre del staff (día 21), foto equipo (día 26), paciente para testimonio (día 7)
+
+## Diseños en Canva (editables)
+| Día | Post | Link |
+|---|---|---|
+| 2 | Carrusel beneficios expiran | https://canva.link/kqmowohs2mv4fqa |
+| 6 | Promo $1,000 OFF implantes | https://canva.link/5qwi15xq9n1r8r5 |
+| 9 | Diabetes y encías | https://canva.link/aslpmnk3ta7zsfl |
+| 12 | Carrusel brackets vs alineadores | https://canva.link/14ldbt6levx6h0d |
+| 23 | Carrusel alimentos Thanksgiving | https://canva.link/b4pdozqo7y1bqcf |
+| 27 | Black Friday | https://canva.link/zo7dqq6xwo0hs7z |
