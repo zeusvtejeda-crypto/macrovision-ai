@@ -2,8 +2,15 @@
 
 **Pilares:** Educación 30% · Promo 20% · Humor/mascota 20% · Equipo/BTS 15% · Testimonios/antes-después 15%
 **Ejes del mes:** Beneficios de seguro expiran 31 dic · Mes de la Diabetes · Thanksgiving · Black Friday
-**CTA fijo:** 📞 (626) 531-6611 · Link en bio · "Agenda tu consulta / Schedule your consultation"
-**Hashtags base:** #BriteChoiceDental #DentistaEnElMonte #SanGabrielValley #DentistaFamiliar #Implantes #SmileSpecialists #Dentist626
+**Datos oficiales (britechoicedental.com):**
+- Sedes: El Monte 10728 Ramona Blvd #D · (855) 618-0006 | Duarte 2233 Huntington Dr · (833) 952-8989 | Santa Fe Springs 10009 Orr and Day Rd · (844) 779-1400
+- Especiales nuevos pacientes: Examen + rayos X $49 · Limpieza $179 (reg. $299) · Blanqueamiento $380 (reg. $450)
+- Promos: $1,500 OFF implantes (válido hasta fin de mes) · 15% familia (3+) · 10% seniors 65+ · $25 crédito por referido
+- Diferenciadores: 10+ años · citas el mismo día · abierto sábados · walk-ins · financiamiento 0% · Medicare, Denti-Cal, PPO · ES/EN
+- Slogans: "Tu dentista cerca de ti" · "Atención dental excepcional para toda la familia"
+
+**CTA fijo:** "Agenda tu cita →" · britechoicedental.com · teléfono de la sede
+**Hashtags base:** #BriteChoiceDental #DentistaElMonte #DentistaDuarte #DentistaSantaFeSprings #SanGabrielValley #DentistaFamiliar #ImplantesDentales #Dentist626
 **Cadencia:** 1 post/día L–S · Domingos solo stories · Stories diarias (3–5)
 
 | Día | Formato | Hook / Copy (ES · EN) |
@@ -13,7 +20,7 @@
 | 3 Mar | Reel (tour clínica + equipo saludando) | "Esto ves cuando entras a Brite Choice 👋" |
 | 4 Mié | Static meme mascota | "Cuando el dentista dice: cero caries 🐒✨" |
 | 5 Jue | Carrusel educativo | "5 señales de que necesitas una limpieza YA" |
-| 6 Vie | Promo static/reel | "$1,000 OFF en implantes — cupo limitado de noviembre" |
+| 6 Vie | Promo static/reel | "$1,500 OFF en implantes — válido solo este mes" |
 | 7 Sáb | Reel testimonio | Paciente real: "Por qué elegí Brite Choice" (subtítulos ES/EN) |
 | 8 Dom | Stories | Encuesta: "¿Cuándo fue tu última limpieza?" + CTA agenda |
 | 9 Lun | Static | Mes de la Diabetes: "Diabetes y encías: lo que nadie te dice" |
@@ -34,10 +41,10 @@
 | 24 Mar | Reel tips rápidos | "3 hábitos para sobrevivir las fiestas sin caries" |
 | 25 Mié | Static aviso | Horario de Thanksgiving + número de emergencias |
 | 26 Jue | Static foto equipo | "Gracias por confiarnos su sonrisa 🧡" · Happy Thanksgiving |
-| 27 Vie | Promo Black Friday | "Black Friday: examen + limpieza + rayos X por $[precio] — solo hoy/fin de semana" |
+| 27 Vie | Promo Black Friday | "Black Friday: limpieza + examen + rayos X $179 (reg. $299) + blanqueamiento $380 — solo este fin de semana" |
 | 28 Sáb | Reel | "Emergencias dentales típicas después de las fiestas (y qué hacer)" |
 | 29 Dom | Stories cuenta regresiva | "Última oportunidad Black Friday ⏰" + sticker de link |
-| 30 Lun | Carrusel cierre | "Diciembre: última llamada para tus beneficios — checklist de fin de año" |
+| 30 Lun | Carrusel cierre | "Diciembre: última llamada para tus beneficios — checklist + 15% familia / 10% seniors" |
 
 ## Stories diarias (rotar)
 - Lun: recordatorio seguro/beneficios · Mar: BTS clínica · Mié: trivia dental · Jue: testimonio/reseña · Vie: promo activa · Sáb: humor mascota · Dom: encuesta/Q&A
@@ -45,14 +52,17 @@
 ## Specs
 - Feed: 1080×1350 · Reels: 1080×1920, 15–30 s, subtítulos ES+EN · Carrusel: 5–7 slides, última slide = CTA
 - Marca: logo arriba, rojo/azul, mascota mono en posts humor
-- Pendientes del cliente: precio Black Friday, nombre del staff (día 21), foto equipo (día 26), paciente para testimonio (día 7)
+- Pendientes del cliente: nombre del staff (día 21), foto equipo (día 26), paciente para testimonio (día 7)
 
-## Diseños en Canva (editables)
-| Día | Post | Link |
+## Diseños (PNG 1080×1350, listos para publicar)
+Carpeta: `content/designs/brite-choice-nov-2026/`
+| Día | Post | Archivos |
 |---|---|---|
-| 2 | Carrusel beneficios expiran | https://canva.link/kqmowohs2mv4fqa |
-| 6 | Promo $1,000 OFF implantes | https://canva.link/5qwi15xq9n1r8r5 |
-| 9 | Diabetes y encías | https://canva.link/aslpmnk3ta7zsfl |
-| 12 | Carrusel brackets vs alineadores | https://canva.link/14ldbt6levx6h0d |
-| 23 | Carrusel alimentos Thanksgiving | https://canva.link/b4pdozqo7y1bqcf |
-| 27 | Black Friday | https://canva.link/zo7dqq6xwo0hs7z |
+| 2 | Carrusel beneficios expiran | 02_beneficios_p1–p5 |
+| 6 | Promo $1,500 OFF implantes | 06_implantes |
+| 9 | Diabetes y encías | 09_diabetes |
+| 12 | Carrusel brackets vs alineadores | 12_brackets_vs_alineadores_p1–p5 |
+| 23 | Carrusel alimentos Thanksgiving | 23_thanksgiving_p1–p4 |
+| 27 | Black Friday | 27_black_friday |
+
+Regenerar: `node render.js` (Playwright + Chromium). Assets: logo oficial del sitio, diente/implante 3D.
