@@ -64,5 +64,19 @@ Carpeta: `content/designs/brite-choice-nov-2026/`
 | 12 | Carrusel brackets vs alineadores | 12_brackets_vs_alineadores_p1–p5 |
 | 23 | Carrusel alimentos Thanksgiving | 23_thanksgiving_p1–p4 |
 | 27 | Black Friday | 27_black_friday |
+| 1 | Día de Muertos | 01_dia_de_muertos |
+| 4 | Meme cero caries | 04_meme_cero_caries |
+| 5 | Carrusel 5 señales limpieza | 05_senales_limpieza_p1–p7 |
+| 11 | Veterans Day | 11_veterans_day |
+| 14 | Día Mundial Diabetes | 14_dia_mundial_diabetes |
+| 16 | Quedan 6 semanas seguro | 16_quedan_6_semanas |
+| 18 | Carrusel niños primera visita | 18_ninos_primera_visita_p1–p5 |
+| 19 | Mito vs realidad blanqueamiento | 19_mito_blanqueamiento |
+| 20 | Blanqueamiento Thanksgiving | 20_blanqueamiento_fotos |
+| 25 | Horario Thanksgiving | 25_horario_thanksgiving |
+| 26 | Gracias Thanksgiving | 26_gracias_thanksgiving |
+| 30 | Checklist fin de año | 30_checklist_diciembre |
+
+Pendientes (requieren material del cliente): reels días 3, 7, 10, 13, 17, 21, 24, 28 · stories domingos.
 
 Regenerar: `node render.js` (Playwright + Chromium). Assets: logo oficial del sitio, diente/implante 3D.

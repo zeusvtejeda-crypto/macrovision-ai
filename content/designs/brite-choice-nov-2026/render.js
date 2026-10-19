@@ -108,10 +108,91 @@ designs['27_black_friday'] = [
  <div class="tag">Solo este fin de semana · Nuevos pacientes</div></div><div class="btn">Agenda tu cita →</div>`+foot('britechoicedental.com','El Monte · Duarte · Santa Fe Springs · Financiamiento 0%')),
 ];
 
+
+// ---------- Resto del mes ----------
+const big = (e,extra='') => `<div style="font-size:300px;line-height:1;margin:10px 0 20px;filter:drop-shadow(0 20px 30px rgba(31,79,163,.2));${extra}">${e}</div>`;
+
+// 1 Día de Muertos
+designs['01_dia_de_muertos'] = [
+ wrap(`<div class="content mid"><div class="kicker" style="background:#7a3fb5">🌼 DÍA DE MUERTOS</div>${big('💀')}<h1>Que lo único que descanse en paz sea tu <span class="r">miedo al dentista</span></h1><div class="sub">Aquí te tratamos con calma y sin dolor 🧡</div></div>`+foot('britechoicedental.com','El Monte · Duarte · Santa Fe Springs')),
+];
+
+// 4 Meme
+designs['04_meme_cero_caries'] = [
+ wrap(`<div class="content mid"><h1 style="font-size:70px">Cuando el dentista dice:</h1><div class="s" style="display:inline-block;background:#e0202a;color:#fff;font-family:Fredoka;font-weight:700;font-size:110px;padding:10px 50px;border-radius:30px;transform:rotate(-3deg);margin:30px 0">CERO CARIES</div><img class="hero" src="${TOOTH}" style="width:360px"><div class="sub">😎 Ese flow solo lo da una limpieza cada 6 meses</div></div>`+foot('Etiqueta a quien ya le toca su limpieza 👇','britechoicedental.com')),
+];
+
+// 5 Carrusel: 5 señales
+const sig = (n,e,t,d) => wrap(`<div class="content mid"><div class="kicker">SEÑAL ${n} DE 5</div>${big(e,'font-size:220px')}<h1>${t}</h1><div class="sub">${d}</div></div>`, swipe(n+1,7));
+designs['05_senales_limpieza'] = [
+ wrap(`<div class="content mid"><img class="hero" src="${TOOTH}" style="width:320px"><h1>5 señales de que necesitas una <span class="r">limpieza YA</span></h1><div class="sub">5 signs you need a cleaning now</div></div>`, swipe(1,7)),
+ sig(1,'😮‍💨','Mal aliento que <span class="r">no se va</span>','Ni con enjuague. Suele ser sarro acumulado.'),
+ sig(2,'🩸','Encías que <span class="r">sangran</span> al cepillarte','Es inflamación, no "normal".'),
+ sig(3,'🟡','Manchas o <span class="r">dientes amarillos</span>','Café, té y sarro se acumulan en capas.'),
+ sig(4,'🦷','Sientes los dientes <span class="r">ásperos</span>','Pasa la lengua: si raspa, es sarro.'),
+ sig(5,'📅','Pasaron más de <span class="r">6 meses</span>','Esa es la regla. Sin excepciones.'),
+ wrap(`<div class="content mid"><h1>¿Te identificaste con <span class="r">alguna</span>?</h1><div class="tag">Nuevos pacientes: limpieza $179 (reg. $299)</div><div class="sub" style="margin-top:30px">Incluye limpieza, examen y rayos X</div></div><div class="btn">Agenda tu cita →</div>`+foot('britechoicedental.com', PH), swipe(7,7)),
+];
+
+// 11 Veterans Day
+designs['11_veterans_day'] = [
+ wrap(`<div class="content mid"><div class="kicker" style="background:#1f4fa3">🇺🇸 VETERANS DAY · 11 DE NOVIEMBRE</div>${big('🎖️')}<h1>Gracias a quienes <span class="r">sirvieron</span></h1><div class="sub">Honramos su servicio y su sacrificio. Thank you for your service.</div></div>`+foot('Brite Choice Dental','El Monte · Duarte · Santa Fe Springs')),
+];
+
+// 14 Día Mundial de la Diabetes
+designs['14_dia_mundial_diabetes'] = [
+ wrap(`<div class="content"><div class="kicker" style="background:#1f4fa3">🔵 DÍA MUNDIAL DE LA DIABETES</div><h1>3 tips para proteger tus <span class="r">encías</span></h1><div class="cards one">${card('🪥','Cepíllate 2 veces al día','Con pasta con flúor, 2 minutos')}${card('🧵','Usa hilo dental diario','Donde el cepillo no llega')}${card('🩺','Limpieza cada 6 meses','Y avísanos si tienes diabetes')}</div></div><div class="btn">Agenda tu revisión →</div>`+foot('britechoicedental.com','Citas el mismo día · Abiertos sábados')),
+];
+
+// 16 Urgencia seguro
+designs['16_quedan_6_semanas'] = [
+ wrap(`<div class="content">${big('⏳',' font-size:220px')}<h1>Quedan <span class="s">6 semanas</span><br>para usar tu seguro dental</h1><div class="sub">El 31 de diciembre tus beneficios se reinician. Lo que no uses, se pierde.</div><div class="list" style="margin-top:40px">${row('🛡️','Medicare · Denti-Cal · PPO')}${row('⚡','Citas el mismo día')}</div><div class="btn flow">Agenda tu cita →</div></div>`+foot('britechoicedental.com', PH)),
+];
+
+// 18 Carrusel niños
+designs['18_ninos_primera_visita'] = [
+ wrap(`<div class="content mid"><div class="kicker">👶 DENTISTA PARA NIÑOS</div>${big('🧒',' font-size:240px')}<h1>¿A qué edad la <span class="r">primera visita</span> al dentista?</h1></div>`, swipe(1,5)),
+ wrap(`<div class="content mid">${big('🎂',' font-size:220px')}<h1>Al <span class="r">primer diente</span> o al cumplir <span class="r">1 año</span></h1><div class="sub">Lo que ocurra primero. Así lo recomienda la AAPD.</div></div>`, swipe(2,5)),
+ wrap(`<div class="content mid"><h1>¿Qué hacemos en esa <span class="r">cita</span>?</h1><div class="cards one" style="margin-top:40px">${card('🔍','Revisión suave','Sin dolor, en brazos de mamá o papá')}${card('🪥','Tips de cepillado','Para la edad de tu peque')}${card('🍼','Hábitos','Biberón, chupón y azúcar')}</div></div>`, swipe(3,5)),
+ wrap(`<div class="content mid">${big('😁',' font-size:220px')}<h1>Visitas tempranas = <span class="r">menos miedo</span> después</h1><div class="sub">Los niños que van desde pequeños llegan tranquilos al dentista.</div></div>`, swipe(4,5)),
+ wrap(`<div class="content mid"><h1>Toda la familia en <span class="r">un solo lugar</span></h1><div class="tag">15% de descuento familiar (3+ miembros)</div><div class="sub" style="margin-top:30px">Aceptamos Denti-Cal · Hablamos español</div></div><div class="btn">Agenda tu cita →</div>`+foot('britechoicedental.com', PH), swipe(5,5)),
+];
+
+// 19 Mito vs realidad
+designs['19_mito_blanqueamiento'] = [
+ wrap(`<div class="content mid"><h1>Mito <span class="r">vs</span> Realidad</h1><div class="vs" style="margin-top:30px"><div class="col red"><div class="big">❌</div><h3>MITO</h3><p>"El blanqueamiento daña el esmalte"</p></div><div class="col"><div class="big">✅</div><h3>REALIDAD</h3><p>Hecho por un profesional, es seguro y no desgasta el esmalte</p></div></div><div class="tag">Blanqueamiento profesional $380 (reg. $450)</div></div>`+foot('britechoicedental.com','Nuevos pacientes · Oferta por tiempo limitado')),
+];
+
+// 20 Promo blanqueamiento Thanksgiving
+designs['20_blanqueamiento_fotos'] = [
+ wrap(`<div class="content"><div class="kicker" style="background:#d9771f">📸 LISTO PARA LAS FOTOS</div><h1>Sonrisa lista para <span class="r">Thanksgiving</span></h1><div class="sub">Blanqueamiento profesional en 1 sesión</div><div class="prices" style="grid-template-columns:1fr;max-width:520px"><div class="price"><div class="n">Blanqueamiento profesional</div><div class="p">$380</div><div class="o">reg. $450</div></div></div><div class="btn flow">Agenda tu cita →</div></div>`+foot('britechoicedental.com','Nuevos pacientes · Agenda antes del 25 de noviembre')),
+];
+
+// 25 Horario Thanksgiving
+designs['25_horario_thanksgiving'] = [
+ wrap(`<div class="content mid"><div class="kicker" style="background:#d9771f">🦃 AVISO DE HORARIO</div><h1>Thanksgiving</h1><div class="cards one" style="margin-top:30px">${card('🚫','Jueves 26 de noviembre','Cerrado')}${card('✅','Viernes 27 y sábado 28','Horario normal · Black Friday Dental')}${card('🚨','¿Emergencia dental?','Llámanos: te atendemos el mismo día')}</div></div>`+foot(PH,'britechoicedental.com')),
+];
+
+// 26 Thanksgiving gracias
+designs['26_gracias_thanksgiving'] = [
+ wrap(`<div class="content mid"><div class="kicker" style="background:#d9771f">🧡 HAPPY THANKSGIVING</div>${big('🙏')}<h1>Gracias por confiarnos <span class="r">su sonrisa</span></h1><div class="sub">Más de 10 años cuidando a las familias de El Monte, Duarte y Santa Fe Springs.</div></div>`+foot('Con cariño, el equipo de Brite Choice Dental','britechoicedental.com')),
+];
+
+// 30 Checklist cierre de año
+designs['30_checklist_diciembre'] = [
+ wrap(`<div class="content mid"><div class="kicker">ÚLTIMA LLAMADA · BENEFICIOS 2026</div><h1>Checklist de <span class="r">fin de año</span></h1><div class="list" style="margin-top:30px">${row('☑️','Limpieza y examen')}${row('☑️','Rellenos pendientes')}${row('☑️','Coronas o implantes')}${row('☑️','Revisión de los niños')}${row('💡','15% familia · 10% seniors 65+')}</div></div>`, ''),
+];
+designs['30_checklist_diciembre'][0] = designs['30_checklist_diciembre'][0].replace('</div></div>'+foot('',''),'');
+designs['30_checklist_diciembre'] = [
+ wrap(`<div class="content"><div class="kicker">ÚLTIMA LLAMADA · BENEFICIOS 2026</div><h1>Checklist de <span class="r">fin de año</span></h1><div class="list" style="margin-top:30px">${row('☑️','Limpieza y examen')}${row('☑️','Rellenos pendientes')}${row('☑️','Coronas o implantes')}${row('☑️','Revisión de los niños')}${row('💡','15% familia · 10% seniors 65+')}</div></div><div class="btn">Agenda tu cita →</div>`+foot('britechoicedental.com', PH)),
+];
+
+const ONLY = process.argv.slice(2);
 (async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1080, height: 1350 }, deviceScaleFactor: 1 });
   for (const [name, pages] of Object.entries(designs)) {
+    if (ONLY.length && !ONLY.some(o=>name.startsWith(o))) continue;
     for (let i = 0; i < pages.length; i++) {
       await page.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body style="margin:0">${pages[i]}</body></html>`, { waitUntil: 'networkidle' });
       await page.evaluate(() => document.fonts.ready);
